@@ -10,6 +10,7 @@
   --aviso-fondo: #fff6e0;
   --error: #a32020;
   --ok: #1e6b34;
+  --sug: #1e6b34;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -88,8 +89,8 @@ textarea { resize: vertical; }
 .matriz td.cel.acum { color: #8a96a0; }
 .sim { font-size: .95rem; }
 .cod { font-weight: 600; }
-.sugerido-txt { margin: 10px 0; font-size: .95rem; }
-.sugerido-txt b { color: var(--acento); }
+.sugerido-txt { margin: 12px 0; padding: 10px 14px; font-size: 1rem; background: #e6f4ea; border: 2px solid var(--sug); border-radius: 6px; }
+.sugerido-txt b { color: var(--sug); font-size: 1.08rem; }
 
 /* Tarjetas de nivel */
 .niveles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 8px 0 4px; }
@@ -100,6 +101,9 @@ textarea { resize: vertical; }
 .nivel .cab small { display: block; font-weight: 400; color: var(--suave); }
 .nivel .badge { display: inline-block; font-size: .7rem; padding: 1px 6px; border-radius: 10px; background: #dfe7ee; color: var(--acento); margin: 0 4px 4px 0; font-weight: 600; }
 .nivel .badge.acord { background: var(--acento); color: #fff; }
+.nivel .badge.sug { background: var(--sug); color: #fff; font-size: .74rem; padding: 2px 8px; }
+.nivel.sug { border: 3px solid var(--sug); padding: 8px; box-shadow: 0 0 0 3px rgba(30,107,52,.15); }
+.nivel.sug[aria-pressed="true"] { border-color: var(--sug); background: #e6f4ea; }
 
 .campos { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 .campos .full { grid-column: 1 / -1; }
@@ -108,10 +112,18 @@ textarea { resize: vertical; }
 .props { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 6px; }
 .props label { margin: 0; }
 .props select { width: auto; }
+.sin-dudas { display: inline-flex; gap: 6px; align-items: center; margin: 4px 0 6px; font-size: .88rem; }
+.mt { margin-top: 12px; }
+.ev-cab { display: flex; justify-content: space-between; align-items: center; }
+.ev-quitar { font-size: .8rem; }
+.otro { margin-top: 4px; }
 
 .nav { display: flex; justify-content: space-between; gap: 10px; margin-top: 14px; }
 
 /* Prioridades */
+.modos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 14px; }
+.modo { display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--linea); border-radius: 6px; padding: 10px; margin: 0; cursor: pointer; }
+.modo:has(input:checked) { border-color: var(--acento); background: var(--acento-claro); }
 .prior-lista { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
 .prior-lista label { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 5px 0; border-bottom: 1px solid #edf0f2; }
 .prior-lista label.off { color: #9aa4ad; }
@@ -124,8 +136,29 @@ textarea { resize: vertical; }
 .meta b { display: block; font-size: .78rem; color: var(--suave); font-weight: 600; }
 .chart-box { position: relative; height: 340px; }
 .chart-box.grande { height: 620px; }
-.grid-radares { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 16px; }
-.grid-radares .card { margin: 0; }
+.fila-radares { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 8px; }
+.fila-radares .radar-attr { flex: 0 0 440px; max-width: 85vw; scroll-snap-align: start; border: 1px solid var(--linea); border-radius: 6px; padding: 12px; }
+.nivel-grupo { display: grid; grid-template-columns: 110px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid #edf0f2; }
+.nivel-grupo .ng-n { font-weight: 700; }
+.nivel-grupo .ng-n small { display: block; font-weight: 600; color: var(--suave); }
+.nivel-grupo ul { margin: 0; padding-left: 18px; }
+.ruta-item { border: 1px solid var(--linea); border-radius: 6px; margin-bottom: 12px; overflow: hidden; }
+.ruta-cab { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #eef1f3; padding: 8px 12px; }
+.ruta-num { background: var(--acento); color: #fff; font-weight: 700; border-radius: 12px; padding: 1px 9px; font-size: .85rem; }
+.ruta-sub { font-weight: 600; flex: 1 1 260px; }
+.ruta-sub small { font-weight: 400; color: var(--suave); }
+.ruta-salto { font-weight: 700; color: var(--acento); white-space: nowrap; }
+.ruta-prior { font-size: .8rem; white-space: nowrap; padding: 2px 8px; border-radius: 10px; background: #fff; border: 1px solid var(--linea); }
+.ruta-prior.si { background: var(--aviso-fondo); border-color: var(--aviso); color: #4d3600; font-weight: 700; }
+.ruta-cuerpo { display: grid; grid-template-columns: 1fr 1fr; }
+.ruta-cuerpo > div { padding: 10px 12px; font-size: .86rem; }
+.ruta-cuerpo > div + div { border-left: 1px solid var(--linea); }
+.ruta-cuerpo h4 { margin: 0 0 4px; font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; color: var(--suave); }
+.ruta-cuerpo ul { margin: 0; padding-left: 18px; }
+.tip { position: fixed; z-index: 50; max-width: 340px; background: #1d2329; color: #fff; font-size: .82rem; line-height: 1.4; padding: 8px 10px; border-radius: 6px; pointer-events: none; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+.tip b { display: block; margin-bottom: 2px; }
+.enlace { background: none; border: 0; padding: 0; font: inherit; color: var(--suave); text-decoration: underline; cursor: pointer; display: inline; margin: 0; }
+.opciones { margin: 4px 0 0; }
 .rango { color: var(--acento); font-weight: 600; }
 .tabla-scroll { overflow-x: auto; }
 .tabla { width: 100%; border-collapse: collapse; font-size: .84rem; }
@@ -146,12 +179,13 @@ textarea { resize: vertical; }
 @media (max-width: 860px) {
   .niveles { grid-template-columns: 1fr; }
   .grid4 { grid-template-columns: 1fr 1fr; }
-  .grid-radares { grid-template-columns: 1fr; }
   .chart-box.grande { height: 460px; }
 }
 @media (max-width: 640px) {
   body { font-size: 14px; }
-  .grid2, .grid4, .campos, .prior-lista { grid-template-columns: 1fr; }
+  .grid2, .grid4, .campos, .prior-lista, .modos, .ruta-cuerpo { grid-template-columns: 1fr; }
+  .ruta-cuerpo > div + div { border-left: 0; border-top: 1px solid var(--linea); }
+  .nivel-grupo { grid-template-columns: 1fr; gap: 2px; }
   .chart-box { height: 300px; }
   .chart-box.grande { height: 380px; }
   /* Matriz: cada componente como bloque */

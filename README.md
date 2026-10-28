@@ -6,7 +6,7 @@ Aplicación web para aplicar el modelo de madurez **BIL-Lima** (adaptado de Rash
 - **En la computadora:** descarga la carpeta y haz doble clic en `index.html`.
 - **En GitHub Pages:** en *Settings → Pages*, publica la rama principal (carpeta raíz).
 - Necesita internet para cargar las librerías (Chart.js, SheetJS y jsPDF) desde un CDN.
-- El avance se guarda solo en el navegador. Con **Exportar JSON** se descarga la evaluación y con **Importar JSON** se retoma, incluso en otra computadora.
+- El avance se guarda solo en el navegador. Al pie de la página están **Importar JSON**, **Exportar JSON** (para retomar una evaluación en otra computadora) y **Nueva evaluación**.
 - Cada evaluación tiene un identificador único y guarda la versión del modelo con que se hizo.
 
 ## Archivos
@@ -14,7 +14,7 @@ Aplicación web para aplicar el modelo de madurez **BIL-Lima** (adaptado de Rash
 |---|---|
 | `index.html`, `styles.css`, `app.js` | Interfaz y lógica. No hace falta tocarlos para cambiar el modelo. |
 | `data.js` | **Todo el modelo:** atributos, subatributos, descriptores y matriz de componentes. |
-| `config.js` | URL de la base de datos en Google Sheets. Vacía = botón "Enviar" deshabilitado. |
+| `config.js` | URL de la base de datos en Google Sheets. Si está vacía, no se envía nada. |
 | `fuentes/` | Fichas de los subatributos en Markdown (fuente de `data.js`). |
 | `herramientas/fichas_a_data.py` | Convierte las fichas en `data.js`. |
 
@@ -44,5 +44,10 @@ El script muestra los conteos y avisa si falta un descriptor, si una celda no se
 ## Cómo cambiar la versión del modelo
 En `data.js`, cambia `meta.version` (por ejemplo `"BIL-Lima v2"`) y `meta.fecha`, o usa `--version` y `--fecha` del script. La versión aparece en la cabecera, en el pie del PDF y en el Excel. Al importar un JSON hecho con otra versión, la app avisa antes de cargarlo.
 
+## Otras opciones que se editan en `app.js`
+- **Áreas de los evaluadores:** lista `AREAS` al inicio de `app.js` (la opción "Otro" permite escribir el área).
+- **Preguntas de cierre:** lista `PREGUNTAS` (texto y respuesta rápida: "Ninguno", "Ninguna", "Nada").
+- **Ayuda en los diagramas:** al pasar el cursor sobre un subatributo se muestra su descripción. Si en `data.js` se agrega a un subatributo el campo `"resumen": "…"`, se muestra ese texto breve en su lugar.
+
 ## Conectar Google Sheets (después)
-Pon en `config.js` la URL de la aplicación web de Google Apps Script en `urlBaseDatos`. El botón **Enviar a la base de datos** envía la evaluación por POST, como JSON en texto plano.
+Pon en `config.js` la URL de la aplicación web de Google Apps Script en `urlBaseDatos`. La evaluación se envía automáticamente al pulsar **Finalizar** (POST, JSON en texto plano), sin botón visible.

@@ -13,12 +13,6 @@
       <h1 id="app-titulo">Modelo de madurez BIL-Lima</h1>
       <p class="sub" id="app-version"></p>
     </div>
-    <div class="topbar-acc">
-      <label class="btn ghost" for="f-importar">Importar JSON</label>
-      <input type="file" id="f-importar" accept=".json,application/json" hidden>
-      <button class="btn ghost" id="btn-json" type="button">Exportar JSON</button>
-      <button class="btn ghost" id="btn-nueva" type="button">Nueva evaluación</button>
-    </div>
   </div>
   <nav class="wrap pasos" id="pasos" aria-label="Etapas">
     <button type="button" data-vista="inicio">1. Inicio</button>
@@ -36,7 +30,6 @@
   <section id="vista-inicio" class="vista">
     <div class="card">
       <h2>Datos de la evaluación</h2>
-      <p class="hint" id="id-eval"></p>
       <form id="form-inicio" autocomplete="off" novalidate>
         <fieldset>
           <legend>Organización</legend>
@@ -53,38 +46,22 @@
                 <option>Contratista</option>
                 <option>Diseñador</option>
                 <option>Consultor</option>
-                <option>Cliente</option>
               </select>
             </label>
             <label>Categoría
               <select id="f-cat" required>
                 <option value="">Seleccione…</option>
+                <option>Pequeña empresa</option>
+                <option>Mediana empresa</option>
                 <option>Gran empresa</option>
-                <option>Otra</option>
               </select>
             </label>
           </div>
         </fieldset>
-        <fieldset>
-          <legend>Evaluador 1</legend>
-          <div class="grid4">
-            <label>Cargo <input type="text" id="f-e1-cargo" required></label>
-            <label>Área <input type="text" id="f-e1-area" required></label>
-            <label>Años de experiencia <input type="number" min="0" max="70" id="f-e1-anios" required></label>
-            <label>Nombre <span class="hint">(opcional)</span> <input type="text" id="f-e1-nombre"></label>
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>Evaluador 2</legend>
-          <div class="grid4">
-            <label>Cargo <input type="text" id="f-e2-cargo" required></label>
-            <label>Área <input type="text" id="f-e2-area" required></label>
-            <label>Años de experiencia <input type="number" min="0" max="70" id="f-e2-anios" required></label>
-            <label>Nombre <span class="hint">(opcional)</span> <input type="text" id="f-e2-nombre"></label>
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>Facilitadora</legend>
+        <div id="evaluadores"></div>
+        <button class="btn" type="button" id="btn-agregar-ev">+ Agregar evaluador</button>
+        <fieldset class="mt">
+          <legend>Facilitador(a)</legend>
           <label>Nombre <input type="text" id="f-facil"></label>
         </fieldset>
         <p id="inicio-msg" class="msg" role="alert"></p>
@@ -104,8 +81,8 @@
       <label class="ir">Ir a <select id="sel-ir"></select></label>
     </div>
     <div class="aviso">
-      <strong>Recuerde:</strong> solo se está en un nivel si se cumple <em>todo</em> lo de los niveles anteriores.
-      El nivel se acuerda por <strong>consenso de los dos evaluadores</strong>.
+      <strong>Recuerden:</strong> solo se está en un nivel si se cumple <em>todo</em> lo de los niveles anteriores.
+      El nivel se acuerda por <strong>consenso de los evaluadores</strong>.
     </div>
     <div id="eval-sub"></div>
     <div class="nav">
@@ -117,9 +94,14 @@
   <!-- 3. Prioridades -->
   <section id="vista-prior" class="vista" hidden>
     <div class="card">
-      <h2>Subatributos prioritarios</h2>
-      <p>Marquen <strong>hasta 3</strong> subatributos que la organización considera prioritarios para su hoja de ruta.</p>
-      <p class="hint" id="prior-cnt"></p>
+      <h2>Subatributos prioritarios para la hoja de ruta</h2>
+      <p>Se marca como máximo <strong>un subatributo por atributo</strong>. Elijan cómo definirlos:</p>
+      <div class="modos">
+        <label class="modo"><input type="radio" name="prior-modo" value="app">
+          <span><strong>Propuesta de la aplicación</strong><br><span class="hint">En cada atributo, el subatributo con el nivel más bajo (en empate, el primero del modelo).</span></span></label>
+        <label class="modo"><input type="radio" name="prior-modo" value="evaluadores">
+          <span><strong>La eligen los evaluadores</strong><br><span class="hint">Marquen el subatributo que más les interesa mejorar en cada atributo.</span></span></label>
+      </div>
       <div id="prior-lista" class="prior-lista"></div>
       <p id="prior-pend" class="msg"></p>
     </div>
@@ -131,19 +113,8 @@
 
   <!-- 4. Cierre -->
   <section id="vista-cierre" class="vista" hidden>
-    <div class="card">
+    <div class="card" id="preguntas-cierre">
       <h2>Preguntas de cierre</h2>
-      <label>1. ¿Qué descriptores o subatributos les costó interpretar, y por qué?
-        <textarea id="c-p1" rows="3"></textarea></label>
-      <label>2. ¿Qué dificultades tuvieron con la herramienta web?
-        <textarea id="c-p2" rows="3"></textarea></label>
-      <label>3. ¿Qué cambiarían para que el modelo sea más útil para su empresa?
-        <textarea id="c-p3" rows="3"></textarea></label>
-    </div>
-    <div class="card">
-      <h2>Notas de la facilitadora</h2>
-      <label>Inducción <textarea id="c-n-ind" rows="3"></textarea></label>
-      <label>Evaluación <textarea id="c-n-eval" rows="3"></textarea></label>
     </div>
     <div class="card">
       <div class="acciones">
@@ -163,21 +134,24 @@
       <button class="btn primary" id="btn-pdf" type="button">Descargar PDF</button>
       <button class="btn" id="btn-xlsx" type="button">Descargar Excel</button>
       <label class="chk"><input type="checkbox" id="chk-anon"> Anonimizar</label>
-      <button class="btn" id="btn-enviar" type="button" disabled>Enviar a la base de datos</button>
-      <span class="hint" id="enviar-txt"></span>
     </div>
     <div class="card" id="res-cabecera"></div>
 
     <div class="card">
-      <h2>Perfil de madurez (21 subatributos)</h2>
+      <h2>Perfil de madurez de los subatributos</h2>
+      <p class="hint">Pase el cursor (o toque) sobre el nombre de un subatributo para ver qué significa.</p>
       <div class="chart-box grande"><canvas id="chart-general"></canvas></div>
     </div>
-    <h2>Perfil por atributo</h2>
-    <div id="res-radares" class="grid-radares"></div>
 
     <div class="card">
-      <h2>Subatributos más y menos maduros</h2>
-      <div id="res-extremos"></div>
+      <h2>Perfil por atributo</h2>
+      <p class="hint">Deslice horizontalmente para ver todos los atributos →</p>
+      <div id="res-radares" class="fila-radares"></div>
+    </div>
+
+    <div class="card">
+      <h2>Subatributos ordenados por nivel</h2>
+      <div id="res-orden"></div>
     </div>
 
     <div class="card">
@@ -188,7 +162,7 @@
     <div class="card">
       <h2>Hoja de ruta</h2>
       <p class="hint">Siguiente nivel de cada subatributo, de menor a mayor nivel actual (empates en el orden del modelo). Sin plazos, costos ni responsables.</p>
-      <div class="tabla-scroll"><table id="tabla-ruta" class="tabla"></table></div>
+      <div id="ruta"></div>
       <div id="ruta-incons"></div>
       <div id="ruta-max"></div>
     </div>
@@ -200,7 +174,17 @@
   </section>
 </main>
 
-<footer class="wrap pie" id="pie"></footer>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+
+<footer class="wrap pie">
+  <p id="pie"></p>
+  <p class="opciones">
+    <label class="enlace" for="f-importar">Importar JSON</label>
+    <input type="file" id="f-importar" accept=".json,application/json" hidden>
+    · <button class="enlace" id="btn-json" type="button">Exportar JSON</button>
+    · <button class="enlace" id="btn-nueva" type="button">Nueva evaluación</button>
+  </p>
+</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
