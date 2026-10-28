@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evaluación BIL-Lima</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <div>
+      <h1 id="app-titulo">Modelo de madurez BIL-Lima</h1>
+      <p class="sub" id="app-version"></p>
+    </div>
+    <div class="topbar-acc">
+      <label class="btn ghost" for="f-importar">Importar JSON</label>
+      <input type="file" id="f-importar" accept=".json,application/json" hidden>
+      <button class="btn ghost" id="btn-json" type="button">Exportar JSON</button>
+      <button class="btn ghost" id="btn-nueva" type="button">Nueva evaluación</button>
+    </div>
+  </div>
+  <nav class="wrap pasos" id="pasos" aria-label="Etapas">
+    <button type="button" data-vista="inicio">1. Inicio</button>
+    <button type="button" data-vista="eval">2. Evaluación</button>
+    <button type="button" data-vista="prior">3. Prioridades</button>
+    <button type="button" data-vista="cierre">4. Cierre</button>
+    <button type="button" data-vista="res">5. Resultados</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <p id="msg-global" class="msg" role="status"></p>
+
+  <!-- 1. Inicio -->
+  <section id="vista-inicio" class="vista">
+    <div class="card">
+      <h2>Datos de la evaluación</h2>
+      <p class="hint" id="id-eval"></p>
+      <form id="form-inicio" autocomplete="off" novalidate>
+        <fieldset>
+          <legend>Organización</legend>
+          <div class="grid2">
+            <label>Nombre de la organización
+              <input type="text" id="f-org" required>
+            </label>
+            <label>Fecha
+              <input type="date" id="f-fecha" required>
+            </label>
+            <label>Tipo
+              <select id="f-tipo" required>
+                <option value="">Seleccione…</option>
+                <option>Contratista</option>
+                <option>Diseñador</option>
+                <option>Consultor</option>
+                <option>Cliente</option>
+              </select>
+            </label>
+            <label>Categoría
+              <select id="f-cat" required>
+                <option value="">Seleccione…</option>
+                <option>Gran empresa</option>
+                <option>Otra</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Evaluador 1</legend>
+          <div class="grid4">
+            <label>Cargo <input type="text" id="f-e1-cargo" required></label>
+            <label>Área <input type="text" id="f-e1-area" required></label>
+            <label>Años de experiencia <input type="number" min="0" max="70" id="f-e1-anios" required></label>
+            <label>Nombre <span class="hint">(opcional)</span> <input type="text" id="f-e1-nombre"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Evaluador 2</legend>
+          <div class="grid4">
+            <label>Cargo <input type="text" id="f-e2-cargo" required></label>
+            <label>Área <input type="text" id="f-e2-area" required></label>
+            <label>Años de experiencia <input type="number" min="0" max="70" id="f-e2-anios" required></label>
+            <label>Nombre <span class="hint">(opcional)</span> <input type="text" id="f-e2-nombre"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Facilitadora</legend>
+          <label>Nombre <input type="text" id="f-facil"></label>
+        </fieldset>
+        <p id="inicio-msg" class="msg" role="alert"></p>
+        <div class="acciones">
+          <button class="btn primary" type="submit" id="btn-iniciar">Iniciar</button>
+          <span class="hint" id="hora-inicio-txt"></span>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- 2. Evaluación -->
+  <section id="vista-eval" class="vista" hidden>
+    <div class="progreso">
+      <div class="progreso-txt"><span id="prog-pos"></span><span id="prog-cnt"></span></div>
+      <div class="barra"><div id="barra-fill"></div></div>
+      <label class="ir">Ir a <select id="sel-ir"></select></label>
+    </div>
+    <div class="aviso">
+      <strong>Recuerde:</strong> solo se está en un nivel si se cumple <em>todo</em> lo de los niveles anteriores.
+      El nivel se acuerda por <strong>consenso de los dos evaluadores</strong>.
+    </div>
+    <div id="eval-sub"></div>
+    <div class="nav">
+      <button class="btn" id="btn-ant" type="button">← Anterior</button>
+      <button class="btn primary" id="btn-sig" type="button">Siguiente →</button>
+    </div>
+  </section>
+
+  <!-- 3. Prioridades -->
+  <section id="vista-prior" class="vista" hidden>
+    <div class="card">
+      <h2>Subatributos prioritarios</h2>
+      <p>Marquen <strong>hasta 3</strong> subatributos que la organización considera prioritarios para su hoja de ruta.</p>
+      <p class="hint" id="prior-cnt"></p>
+      <div id="prior-lista" class="prior-lista"></div>
+      <p id="prior-pend" class="msg"></p>
+    </div>
+    <div class="nav">
+      <button class="btn" type="button" data-ir="eval">← Volver a la evaluación</button>
+      <button class="btn primary" type="button" data-ir="cierre">Continuar al cierre →</button>
+    </div>
+  </section>
+
+  <!-- 4. Cierre -->
+  <section id="vista-cierre" class="vista" hidden>
+    <div class="card">
+      <h2>Preguntas de cierre</h2>
+      <label>1. ¿Qué descriptores o subatributos les costó interpretar, y por qué?
+        <textarea id="c-p1" rows="3"></textarea></label>
+      <label>2. ¿Qué dificultades tuvieron con la herramienta web?
+        <textarea id="c-p2" rows="3"></textarea></label>
+      <label>3. ¿Qué cambiarían para que el modelo sea más útil para su empresa?
+        <textarea id="c-p3" rows="3"></textarea></label>
+    </div>
+    <div class="card">
+      <h2>Notas de la facilitadora</h2>
+      <label>Inducción <textarea id="c-n-ind" rows="3"></textarea></label>
+      <label>Evaluación <textarea id="c-n-eval" rows="3"></textarea></label>
+    </div>
+    <div class="card">
+      <div class="acciones">
+        <button class="btn primary" type="button" id="btn-finalizar">Finalizar</button>
+        <span id="tiempo-txt" class="hint"></span>
+      </div>
+    </div>
+    <div class="nav">
+      <button class="btn" type="button" data-ir="prior">← Prioridades</button>
+      <button class="btn" type="button" data-ir="res">Ver resultados →</button>
+    </div>
+  </section>
+
+  <!-- 5. Resultados -->
+  <section id="vista-res" class="vista" hidden>
+    <div class="card barra-acciones">
+      <button class="btn primary" id="btn-pdf" type="button">Descargar PDF</button>
+      <button class="btn" id="btn-xlsx" type="button">Descargar Excel</button>
+      <label class="chk"><input type="checkbox" id="chk-anon"> Anonimizar</label>
+      <button class="btn" id="btn-enviar" type="button" disabled>Enviar a la base de datos</button>
+      <span class="hint" id="enviar-txt"></span>
+    </div>
+    <div class="card" id="res-cabecera"></div>
+
+    <div class="card">
+      <h2>Perfil de madurez (21 subatributos)</h2>
+      <div class="chart-box grande"><canvas id="chart-general"></canvas></div>
+    </div>
+    <h2>Perfil por atributo</h2>
+    <div id="res-radares" class="grid-radares"></div>
+
+    <div class="card">
+      <h2>Subatributos más y menos maduros</h2>
+      <div id="res-extremos"></div>
+    </div>
+
+    <div class="card">
+      <h2>Tabla de niveles</h2>
+      <div class="tabla-scroll"><table id="tabla-niveles" class="tabla"></table></div>
+    </div>
+
+    <div class="card">
+      <h2>Hoja de ruta</h2>
+      <p class="hint">Siguiente nivel de cada subatributo, de menor a mayor nivel actual (empates en el orden del modelo). Sin plazos, costos ni responsables.</p>
+      <div class="tabla-scroll"><table id="tabla-ruta" class="tabla"></table></div>
+      <div id="ruta-incons"></div>
+      <div id="ruta-max"></div>
+    </div>
+
+    <div class="card interno">
+      <h2>Verificación H.E.3 <span class="etq">Panel interno: no va en el PDF de la empresa</span></h2>
+      <ul id="verif" class="verif"></ul>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap pie" id="pie"></footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
