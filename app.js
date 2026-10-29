@@ -10,6 +10,16 @@
   const SUBS = [];                                  // lista plana en el orden del modelo
   D.atributos.forEach((a) => a.subatributos.forEach((s) => SUBS.push({ a, s })));
   const TOTAL = SUBS.length;
+  const MIN_EV = 2, MAX_EV = 4;
+  // Áreas de los evaluadores (la última opción permite escribir otra)
+  const AREAS = ['Gerencia General', 'Gerencia de Proyectos', 'Operaciones / Producción', 'VDC / BIM',
+    'Planeamiento y Control de Proyectos', 'Oficina Técnica', 'Ingeniería / Diseño', 'Calidad',
+    'Seguridad y Salud en el Trabajo', 'Logística', 'Comercial', 'Otro'];
+  const PREGUNTAS = [
+    { k: 'p1', t: '1. ¿Qué descriptores o subatributos les costó interpretar, y por qué?', nada: 'Ninguno' },
+    { k: 'p2', t: '2. ¿Qué dificultades tuvieron con la herramienta web?', nada: 'Ninguna' },
+    { k: 'p3', t: '3. ¿Qué cambiarían para que el modelo sea más útil para su empresa?', nada: 'Nada' }
+  ];
   let charts = [];
 
   /* ================= Utilidades ================= */
@@ -37,6 +47,7 @@
   const subEtq = (s) => s.codigo + ' ' + s.nombre_en;
   const subEtqLarga = (s) => s.codigo + ' ' + s.nombre_en + ' (' + s.nombre_es + ')';
   const attrEtq = (a) => a.nombre_en + ' (' + a.nombre_es + ')';
+  const dec = (x) => x.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   function descargar(blob, nombre) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -55,27 +66,47 @@
   }
 
   /* ================= Estado ================= */
+  const evVacio = () => ({ cargo: '', area: '', areaOtro: '', anios: '', nombre: '', anon: false });
   function nuevoEstado() {
     return {
       id: uuid(),
       modelo: { nombre: D.meta.nombre, version: D.meta.version, fecha: D.meta.fecha },
       creado: new Date().toISOString(), actualizado: null,
-      inicio: {
-        org: '', fecha: hoy(), tipo: '', cat: '',
-        ev: [{ cargo: '', area: '', anios: '', nombre: '' }, { cargo: '', area: '', anios: '', nombre: '' }],
-        facil: ''
-      },
-      horaInicio: null, horaFin: null,
+      inicio: { org: '', fecha: hoy(), tipo: '', cat: '', ev: [evVacio(), evVacio()], facil: '' },
+      horaInicio: null, horaFin: null, envio: null,
       vista: 'inicio', paso: 0,
-      subs: {},                 // codigo -> estado del subatributo
-      prioridades: [],
-      cierre: { p1: '', p2: '', p3: '', nInd: '', nEval: '' }
+      subs: {},                                 // codigo -> estado del subatributo
+      prior: { modo: '', sel: {} },             // modo: 'app' | 'evaluadores'; sel: atributo -> subatributo
+      cierre: { p1: '', p1n: false, p2: '', p2n: false, p3: '', p3n: false }
     };
+  }
+  // Completa campos y convierte evaluaciones guardadas con versiones anteriores de la app
+  function normalizar(s) {
+    const base = nuevoEstado();
+    const e = Object.assign(base, s);
+    e.inicio = Object.assign(nuevoEstado().inicio, s.inicio || {});
+    e.inicio.ev = (e.inicio.ev || []).map((v) => Object.assign(evVacio(), v));
+    while (e.inicio.ev.length < MIN_EV) e.inicio.ev.push(evVacio());
+    Object.values(e.subs || {}).forEach((st) => {
+      if (!Array.isArray(st.prop)) st.prop = [st.p1 || '', st.p2 || ''];
+      delete st.p1; delete st.p2; delete st.ejemplo;
+      if (st.sinDudas == null) st.sinDudas = false;
+    });
+    if (Array.isArray(s.prioridades)) {
+      const sel = {};
+      s.prioridades.forEach((c) => { const a = c.split('.')[0]; if (!sel[a]) sel[a] = c; });
+      e.prior = { modo: s.prioridades.length ? 'evaluadores' : '', sel };
+    }
+    delete e.prioridades;
+    e.prior = Object.assign({ modo: '', sel: {} }, e.prior || {});
+    e.cierre = Object.assign(nuevoEstado().cierre, s.cierre || {});
+    delete e.cierre.nInd; delete e.cierre.nEval;
+    return e;
   }
   let estado = nuevoEstado();
 
   function subEstado(cod) {
-    if (!estado.subs[cod]) estado.subs[cod] = { m: {}, acordado: null, notaDif: '', ejemplo: '', disc: '', p1: '', p2: '', dudas: '' };
+    if (!estado.subs[cod]) estado.subs[cod] = { m: {}, acordado: null, notaDif: '', disc: '', prop: [], sinDudas: false, dudas: '' };
     return estado.subs[cod];
   }
   function guardar() {
@@ -85,9 +116,12 @@
   function cargar() {
     try {
       const s = JSON.parse(localStorage.getItem(KEY));
-      if (s && typeof s === 'object' && s.id) estado = Object.assign(nuevoEstado(), s);
+      if (s && typeof s === 'object' && s.id) estado = normalizar(s);
     } catch (e) { /* sin datos */ }
   }
+  const areaTxt = (v) => v.area === 'Otro' ? (v.areaOtro || 'Otro') : v.area;
+  const evTxt = (v, conNombre) => [v.cargo, areaTxt(v), v.anios ? v.anios + ' años' : ''].filter(Boolean).join(' · ') +
+    (conNombre && v.nombre && !v.anon ? ' (' + v.nombre + ')' : '');
 
   /* ================= Lógica del modelo ================= */
   // Celdas "●" de un subatributo: casillas de verificación
@@ -122,10 +156,32 @@
     return ac ? { n: ac, fuente: 'acordado' } : { n: sugerido(s), fuente: 'sugerido' };
   }
 
+  // Prioridades: uno por atributo, como máximo
+  function propuestaApp() {
+    const out = {};
+    D.atributos.forEach((a) => {
+      let mejor = null;
+      a.subatributos.forEach((s) => {
+        const n = nivelActual(s).n;
+        if (n < NMAX && (!mejor || n < mejor.n)) mejor = { s, n };
+      });
+      out[a.codigo] = mejor ? mejor.s.codigo : '';
+    });
+    return out;
+  }
+  function prioridadesSel() {
+    if (estado.prior.modo === 'app') return propuestaApp();
+    if (estado.prior.modo === 'evaluadores') return estado.prior.sel;
+    return {};
+  }
+  const listaPrior = () => Object.values(prioridadesSel()).filter(Boolean);
+  const esPrior = (cod) => listaPrior().includes(cod);
+  const modoPriorTxt = () => estado.prior.modo === 'app' ? 'Propuesta de la aplicación' : estado.prior.modo === 'evaluadores' ? 'Elegidas por los evaluadores' : 'Sin definir';
+
   function hojaDeRuta() {
     const items = SUBS.map((x, i) => {
       const na = nivelActual(x.s);
-      return { a: x.a, s: x.s, i, n: na.n, fuente: na.fuente, prior: estado.prioridades.includes(x.s.codigo) };
+      return { a: x.a, s: x.s, i, n: na.n, fuente: na.fuente, prior: esPrior(x.s.codigo) };
     });
     const ruta = items.filter((it) => it.n < NMAX)
       .sort((p, q) => p.n - q.n || p.i - q.i)
@@ -150,11 +206,20 @@
     const txt = mi === ma ? 'N' + mi : 'N' + mi + ' a N' + ma;
     return v.length < a.subatributos.length ? txt + ' (faltan ' + (a.subatributos.length - v.length) + ')' : txt;
   }
-  function extremos() {
-    const con = SUBS.filter((x) => acordado(x.s.codigo)).map((x) => ({ s: x.s, n: acordado(x.s.codigo) }));
-    if (!con.length) return null;
-    const ma = Math.max(...con.map((c) => c.n)), mi = Math.min(...con.map((c) => c.n));
-    return { ma, mi, mas: con.filter((c) => c.n === ma), menos: con.filter((c) => c.n === mi) };
+  // Solo de referencia en el PDF: el modelo no promedia niveles
+  function promedioRef(a) {
+    const v = a.subatributos.map((s) => acordado(s.codigo)).filter(Boolean);
+    return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null;
+  }
+  // Subatributos agrupados por nivel acordado, de N5 a N1
+  function gruposPorNivel() {
+    const g = [];
+    for (let n = NMAX; n >= 1; n--) {
+      const l = SUBS.filter((x) => acordado(x.s.codigo) === n).map((x) => x.s);
+      if (l.length) g.push({ n, subs: l });
+    }
+    const sin = SUBS.filter((x) => !acordado(x.s.codigo)).map((x) => x.s);
+    return { g, sin };
   }
 
   /* ================= Navegación ================= */
@@ -162,6 +227,7 @@
   function mostrar(v) {
     if (v !== 'inicio' && !estado.horaInicio) v = 'inicio';
     estado.vista = v;
+    $('tip').hidden = true;
     VISTAS.forEach((n) => { $('vista-' + n).hidden = n !== v; });
     document.querySelectorAll('#pasos button').forEach((b) => {
       b.setAttribute('aria-current', b.dataset.vista === v ? 'true' : 'false');
@@ -179,35 +245,89 @@
   document.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.ir)));
 
   /* ================= 1. Inicio ================= */
-  const CAMPOS_INICIO = [
-    ['f-org', (i) => i.org, (i, v) => { i.org = v; }, true],
-    ['f-fecha', (i) => i.fecha, (i, v) => { i.fecha = v; }, true],
-    ['f-tipo', (i) => i.tipo, (i, v) => { i.tipo = v; }, true],
-    ['f-cat', (i) => i.cat, (i, v) => { i.cat = v; }, true],
-    ['f-facil', (i) => i.facil, (i, v) => { i.facil = v; }, false]
-  ];
-  [0, 1].forEach((k) => ['cargo', 'area', 'anios', 'nombre'].forEach((f) => {
-    CAMPOS_INICIO.push(['f-e' + (k + 1) + '-' + f, (i) => i.ev[k][f], (i, v) => { i.ev[k][f] = v; }, f !== 'nombre']);
-  }));
+  const CAMPOS_ORG = [['f-org', 'org', true], ['f-fecha', 'fecha', true], ['f-tipo', 'tipo', true], ['f-cat', 'cat', true], ['f-facil', 'facil', false]];
+  CAMPOS_ORG.forEach(([id, k]) => $(id).addEventListener('input', () => { estado.inicio[k] = $(id).value.trim(); guardar(); }));
+
+  function campoTexto(lbl, tipo, v, k, extra) {
+    const l = el('label', '', lbl);
+    const i = el('input'); i.type = tipo; i.value = v[k] || ''; i.dataset.k = k;
+    if (extra) Object.assign(i, extra);
+    i.addEventListener('input', () => { v[k] = i.value.trim(); guardar(); });
+    l.appendChild(i);
+    return l;
+  }
+  function renderEvaluadores() {
+    const cont = $('evaluadores');
+    cont.innerHTML = '';
+    estado.inicio.ev.forEach((v, k) => {
+      const fs = el('fieldset');
+      fs.dataset.ev = k;
+      const lg = el('legend', 'ev-cab', 'Evaluador ' + (k + 1));
+      fs.appendChild(lg);
+      if (k >= MIN_EV) {
+        const q = el('button', 'enlace ev-quitar', 'Quitar');
+        q.type = 'button';
+        q.addEventListener('click', () => { estado.inicio.ev.splice(k, 1); guardar(); renderEvaluadores(); });
+        lg.appendChild(document.createTextNode(' · ')); lg.appendChild(q);
+      }
+      const g = el('div', 'grid4');
+      g.appendChild(campoTexto('Cargo', 'text', v, 'cargo'));
+      // Área: lista desplegable con opción "Otro"
+      const la = el('label', '', 'Área');
+      const sa = el('select'); sa.dataset.k = 'area';
+      sa.appendChild(el('option', '', 'Seleccione…')).value = '';
+      AREAS.forEach((a) => { const o = el('option', '', a === 'Otro' ? 'Otro (especificar)' : a); o.value = a; sa.appendChild(o); });
+      sa.value = v.area || '';
+      const io = el('input', 'otro'); io.type = 'text'; io.placeholder = 'Escriba el área'; io.value = v.areaOtro || ''; io.dataset.k = 'areaOtro';
+      io.hidden = v.area !== 'Otro';
+      sa.addEventListener('change', () => { v.area = sa.value; io.hidden = v.area !== 'Otro'; guardar(); });
+      io.addEventListener('input', () => { v.areaOtro = io.value.trim(); guardar(); });
+      la.appendChild(sa); la.appendChild(io);
+      g.appendChild(la);
+      g.appendChild(campoTexto('Años de experiencia', 'number', v, 'anios', { min: 0, max: 70 }));
+      // Nombre opcional, con opción de anonimizar
+      const ln = campoTexto('Nombre (opcional)', 'text', v, 'nombre');
+      const inN = ln.querySelector('input');
+      const lchk = el('label', 'chk');
+      const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!v.anon; cb.dataset.k = 'anon';
+      const aplicar = () => { inN.disabled = cb.checked; if (cb.checked) { inN.value = ''; v.nombre = ''; } };
+      cb.addEventListener('change', () => { v.anon = cb.checked; aplicar(); guardar(); });
+      lchk.appendChild(cb); lchk.appendChild(document.createTextNode('Anonimizar'));
+      ln.appendChild(lchk);
+      aplicar();
+      g.appendChild(ln);
+      fs.appendChild(g);
+      cont.appendChild(fs);
+    });
+    $('btn-agregar-ev').hidden = estado.inicio.ev.length >= MAX_EV;
+  }
+  $('btn-agregar-ev').addEventListener('click', () => {
+    if (estado.inicio.ev.length >= MAX_EV) return;
+    estado.inicio.ev.push(evVacio()); guardar(); renderEvaluadores();
+  });
 
   function renderInicio() {
-    CAMPOS_INICIO.forEach(([id, get]) => { $(id).value = get(estado.inicio) || ''; $(id).classList.remove('invalido'); });
-    $('id-eval').textContent = 'Identificador de la evaluación: ' + estado.id;
+    CAMPOS_ORG.forEach(([id, k]) => { $(id).value = estado.inicio[k] || ''; $(id).classList.remove('invalido'); });
+    renderEvaluadores();
     $('btn-iniciar').textContent = estado.horaInicio ? 'Guardar y continuar' : 'Iniciar';
     $('hora-inicio-txt').textContent = estado.horaInicio ? 'Hora de inicio registrada: ' + fechaHora(estado.horaInicio) : '';
     $('inicio-msg').textContent = '';
   }
-  CAMPOS_INICIO.forEach(([id, , set]) => $(id).addEventListener('input', () => { set(estado.inicio, $(id).value.trim()); guardar(); }));
   $('form-inicio').addEventListener('submit', (e) => {
     e.preventDefault();
-    const faltan = [];
-    CAMPOS_INICIO.forEach(([id, , set, req]) => {
-      set(estado.inicio, $(id).value.trim());
-      const vacio = req && !$(id).value.trim();
-      $(id).classList.toggle('invalido', vacio);
-      if (vacio) faltan.push(id);
+    let faltan = 0;
+    const marcar = (nodo, vacio) => { nodo.classList.toggle('invalido', vacio); if (vacio) faltan++; };
+    CAMPOS_ORG.forEach(([id, k, req]) => { estado.inicio[k] = $(id).value.trim(); marcar($(id), req && !estado.inicio[k]); });
+    document.querySelectorAll('#evaluadores fieldset').forEach((fs) => {
+      const v = estado.inicio.ev[+fs.dataset.ev];
+      fs.querySelectorAll('[data-k]').forEach((n) => {
+        const k = n.dataset.k;
+        if (k === 'cargo' || k === 'anios') marcar(n, !v[k]);
+        if (k === 'area') marcar(n, !v.area);
+        if (k === 'areaOtro') marcar(n, v.area === 'Otro' && !v.areaOtro);
+      });
     });
-    if (faltan.length) { $('inicio-msg').textContent = 'Complete los campos marcados en rojo.'; guardar(); return; }
+    if (faltan) { $('inicio-msg').textContent = 'Complete los campos marcados en rojo.'; guardar(); return; }
     if (!estado.horaInicio) estado.horaInicio = new Date().toISOString();
     mostrar('eval');
   });
@@ -300,7 +420,7 @@
     });
     t.appendChild(tb); wrap.appendChild(t); card.appendChild(wrap);
 
-    card.appendChild(el('p', 'sugerido-txt')).id = 'sugerido-txt';
+    card.appendChild(el('div', 'sugerido-txt')).id = 'sugerido-txt';
 
     // Tarjetas de nivel
     card.appendChild(el('h3', '', 'Descriptores: hagan clic en el nivel acordado'));
@@ -311,8 +431,7 @@
       const n = i + 1;
       const b = el('button', 'nivel');
       b.type = 'button'; b.dataset.n = n;
-      const badges = el('div', 'badges');
-      b.appendChild(badges);
+      b.appendChild(el('div', 'badges'));
       const cab = el('div', 'cab', 'N' + n);
       cab.appendChild(el('small', '', NIV[i].nombre));
       b.appendChild(cab);
@@ -335,13 +454,8 @@
     ln.appendChild(ta); dif.appendChild(ln);
     card.appendChild(dif);
 
-    // Campos de registro
+    // Discrepancia
     const campos = el('div', 'campos');
-    const lEj = el('label', 'full', 'Ejemplo que sustenta el nivel (una línea)');
-    const iEj = el('input'); iEj.type = 'text'; iEj.id = 'f-ejemplo'; iEj.value = st.ejemplo; iEj.maxLength = 300;
-    iEj.addEventListener('input', () => { st.ejemplo = iEj.value; guardar(); });
-    lEj.appendChild(iEj); campos.appendChild(lEj);
-
     const dDisc = el('div', 'full');
     dDisc.appendChild(el('label', '', '¿Hubo discrepancia entre los evaluadores?'));
     const rad = el('div', 'radios');
@@ -354,30 +468,39 @@
     });
     dDisc.appendChild(rad);
     props.hidden = st.disc !== 'si';
-    ['p1', 'p2'].forEach((p, j) => {
-      const l = el('label', '', 'Nivel propuesto por el evaluador ' + (j + 1));
-      const sel = el('select'); sel.id = 'f-' + p;
+    estado.inicio.ev.forEach((v, j) => {
+      const l = el('label', '', 'Nivel propuesto por el evaluador ' + (j + 1) + (v.cargo ? ' (' + v.cargo + ')' : ''));
+      const sel = el('select'); sel.className = 'f-prop'; sel.dataset.j = j;
       sel.appendChild(el('option', '', '—')).value = '';
       NIV.forEach((nv) => { const o = el('option', '', 'N' + nv.n); o.value = nv.n; sel.appendChild(o); });
-      sel.value = st[p] || '';
-      sel.addEventListener('change', () => { st[p] = sel.value ? +sel.value : ''; guardar(); refrescarInferior(); });
+      sel.value = st.prop[j] || '';
+      sel.addEventListener('change', () => { st.prop[j] = sel.value ? +sel.value : ''; guardar(); refrescarInferior(); });
       l.appendChild(sel); props.appendChild(l);
     });
     const bInf = el('button', 'btn', '');
     bInf.type = 'button'; bInf.id = 'btn-inferior';
     bInf.addEventListener('click', () => {
-      const v = [st.p1, st.p2].filter(Boolean);
-      if (v.length === 2) { st.acordado = Math.min(...v); guardar(); refrescarNivel(); llenarIrA(); }
+      const v = propuestos(st);
+      if (v.length >= 2) { st.acordado = Math.min(...v); guardar(); refrescarNivel(); llenarIrA(); }
     });
     props.appendChild(bInf);
-    props.appendChild(el('p', 'hint', 'Si no hay acuerdo, se asigna el nivel inferior de los dos propuestos y se registra la discrepancia.'));
+    props.appendChild(el('p', 'hint', 'Si no hay acuerdo, se asigna el nivel inferior de los propuestos y se registra la discrepancia.'));
     dDisc.appendChild(props);
     campos.appendChild(dDisc);
 
-    const lDu = el('label', 'full', 'Dudas o dificultades');
-    const tDu = el('textarea'); tDu.rows = 2; tDu.id = 'f-dudas'; tDu.value = st.dudas;
+    // Dudas o dificultades
+    const dDu = el('div', 'full');
+    dDu.appendChild(el('label', '', 'Dudas o dificultades'));
+    const lsd = el('label', 'sin-dudas');
+    const csd = el('input'); csd.type = 'checkbox'; csd.id = 'f-sindudas'; csd.checked = !!st.sinDudas;
+    lsd.appendChild(csd); lsd.appendChild(document.createTextNode('No hubo dudas ni dificultades'));
+    dDu.appendChild(lsd);
+    const tDu = el('textarea'); tDu.rows = 2; tDu.id = 'f-dudas'; tDu.value = st.dudas; tDu.placeholder = 'Escriban aquí sus dudas o dificultades';
+    tDu.hidden = !!st.sinDudas;
+    csd.addEventListener('change', () => { st.sinDudas = csd.checked; tDu.hidden = csd.checked; guardar(); });
     tDu.addEventListener('input', () => { st.dudas = tDu.value; guardar(); });
-    lDu.appendChild(tDu); campos.appendChild(lDu);
+    dDu.appendChild(tDu);
+    campos.appendChild(dDu);
     card.appendChild(campos);
 
     cont.appendChild(card);
@@ -388,13 +511,14 @@
     refrescarInferior();
     guardar();
   }
+  const propuestos = (st) => (st.prop || []).slice(0, estado.inicio.ev.length).filter(Boolean);
 
   function refrescarInferior() {
     const st = subEstado(SUBS[estado.paso].s.codigo);
     const b = $('btn-inferior'); if (!b) return;
-    const v = [st.p1, st.p2].filter(Boolean);
-    b.disabled = v.length !== 2;
-    b.textContent = v.length === 2 ? 'Asignar el nivel inferior (N' + Math.min(...v) + ')' : 'Asignar el nivel inferior';
+    const v = propuestos(st);
+    b.disabled = v.length < 2;
+    b.textContent = v.length >= 2 ? 'Asignar el nivel inferior (N' + Math.min(...v) + ')' : 'Asignar el nivel inferior';
   }
 
   function refrescarNivel() {
@@ -405,16 +529,17 @@
     sp.textContent = '';
     sp.appendChild(document.createTextNode('Nivel sugerido por la matriz: '));
     sp.appendChild(el('b', '', nivelNombre(sug)));
-    if (sug < NMAX) {
-      const f = faltantes(s, sug + 1).length;
-      sp.appendChild(document.createTextNode(' · para N' + (sug + 1) + ' faltan ' + f + ' componente' + (f === 1 ? '' : 's') + '.'));
-    }
+    sp.appendChild(el('br'));
+    sp.appendChild(el('span', 'hint', sug < NMAX
+      ? 'Es el nivel que corresponde a los componentes marcados. Para N' + (sug + 1) + ' faltan ' + faltantes(s, sug + 1).length + ' componente(s).'
+      : 'Es el nivel que corresponde a los componentes marcados.'));
     document.querySelectorAll('#tarjetas .nivel').forEach((b) => {
       const n = +b.dataset.n;
       b.setAttribute('aria-pressed', st.acordado === n ? 'true' : 'false');
+      b.classList.toggle('sug', n === sug);
       const bd = b.querySelector('.badges');
       bd.innerHTML = '';
-      if (n === sug) bd.appendChild(el('span', 'badge', 'Sugerido'));
+      if (n === sug) bd.appendChild(el('span', 'badge sug', '★ Sugerido por la matriz'));
       if (n === st.acordado) bd.appendChild(el('span', 'badge acord', 'Acordado'));
     });
     const dif = $('aviso-dif');
@@ -433,60 +558,73 @@
   });
 
   /* ================= 3. Prioridades ================= */
-  const MAX_PRIOR = 3;
+  document.querySelectorAll('input[name=prior-modo]').forEach((r) => r.addEventListener('change', () => {
+    estado.prior.modo = r.value; guardar(); renderPrior();
+  }));
   function renderPrior() {
+    document.querySelectorAll('input[name=prior-modo]').forEach((r) => { r.checked = r.value === estado.prior.modo; });
     const lista = $('prior-lista');
     lista.innerHTML = '';
-    estado.prioridades = estado.prioridades.filter((c) => SUBS.some((x) => x.s.codigo === c));
-    D.atributos.forEach((a) => {
-      lista.appendChild(el('div', 'prior-attr', a.codigo + '. ' + attrEtq(a)));
-      a.subatributos.forEach((s) => {
-        const l = el('label');
-        const cb = el('input'); cb.type = 'checkbox'; cb.value = s.codigo;
-        cb.checked = estado.prioridades.includes(s.codigo);
-        cb.addEventListener('change', () => {
-          if (cb.checked && estado.prioridades.length >= MAX_PRIOR) { cb.checked = false; return; }
-          if (cb.checked) estado.prioridades.push(s.codigo);
-          else estado.prioridades = estado.prioridades.filter((c) => c !== s.codigo);
-          guardar(); refrescarPrior();
+    const modo = estado.prior.modo;
+    const sel = prioridadesSel();
+    if (modo) {
+      D.atributos.forEach((a) => {
+        lista.appendChild(el('div', 'prior-attr', a.codigo + '. ' + attrEtq(a)));
+        const opciones = a.subatributos.map((s) => [s.codigo, subEtqLarga(s), nivelActual(s).n]).concat([['', 'Ninguno', null]]);
+        opciones.forEach(([cod, txt, n]) => {
+          const l = el('label');
+          const r = el('input'); r.type = 'radio'; r.name = 'prior-' + a.codigo; r.value = cod;
+          r.checked = (sel[a.codigo] || '') === cod;
+          r.disabled = modo === 'app';
+          r.addEventListener('change', () => { estado.prior.sel[a.codigo] = cod; guardar(); });
+          l.classList.toggle('off', r.disabled && !r.checked);
+          l.appendChild(r);
+          l.appendChild(el('span', '', txt));
+          if (n) l.appendChild(el('span', 'niv', 'N' + n));
+          lista.appendChild(l);
         });
-        l.appendChild(cb);
-        l.appendChild(el('span', '', subEtqLarga(s)));
-        const ac = acordado(s.codigo);
-        l.appendChild(el('span', 'niv', ac ? 'N' + ac : 'sin nivel'));
-        lista.appendChild(l);
       });
-    });
+    }
     const pend = SUBS.filter((x) => !acordado(x.s.codigo)).map((x) => x.s.codigo);
-    $('prior-pend').textContent = pend.length ? 'Aún no tienen nivel acordado: ' + pend.join(', ') + '.' : '';
-    refrescarPrior();
-  }
-  function refrescarPrior() {
-    const n = estado.prioridades.length;
-    $('prior-cnt').textContent = n + ' de ' + MAX_PRIOR + ' seleccionados' + (n >= MAX_PRIOR ? ' (límite alcanzado)' : '');
-    document.querySelectorAll('#prior-lista input').forEach((cb) => {
-      cb.disabled = !cb.checked && n >= MAX_PRIOR;
-      cb.parentNode.classList.toggle('off', cb.disabled);
-    });
+    $('prior-pend').textContent = !modo ? 'Elijan una de las dos opciones.' :
+      pend.length ? 'Aún no tienen nivel acordado: ' + pend.join(', ') + '.' : '';
   }
 
   /* ================= 4. Cierre ================= */
-  const CAMPOS_CIERRE = [['c-p1', 'p1'], ['c-p2', 'p2'], ['c-p3', 'p3'], ['c-n-ind', 'nInd'], ['c-n-eval', 'nEval']];
-  CAMPOS_CIERRE.forEach(([id, k]) => $(id).addEventListener('input', () => { estado.cierre[k] = $(id).value; guardar(); }));
-  function duracionMin() {
-    if (!estado.horaInicio || !estado.horaFin) return null;
-    return Math.max(0, Math.round((new Date(estado.horaFin) - new Date(estado.horaInicio)) / 60000));
-  }
   function renderCierre() {
-    CAMPOS_CIERRE.forEach(([id, k]) => { $(id).value = estado.cierre[k] || ''; });
+    const c = $('preguntas-cierre');
+    c.querySelectorAll('.pregunta').forEach((n) => n.remove());
+    PREGUNTAS.forEach((p) => {
+      const d = el('div', 'pregunta');
+      d.appendChild(el('label', '', p.t));
+      const l = el('label', 'sin-dudas');
+      const cb = el('input'); cb.type = 'checkbox'; cb.id = 'c-' + p.k + 'n'; cb.checked = !!estado.cierre[p.k + 'n'];
+      l.appendChild(cb); l.appendChild(document.createTextNode(p.nada));
+      d.appendChild(l);
+      const ta = el('textarea'); ta.rows = 3; ta.id = 'c-' + p.k; ta.value = estado.cierre[p.k] || ''; ta.placeholder = 'Escriban su respuesta';
+      ta.hidden = cb.checked;
+      cb.addEventListener('change', () => { estado.cierre[p.k + 'n'] = cb.checked; ta.hidden = cb.checked; guardar(); });
+      ta.addEventListener('input', () => { estado.cierre[p.k] = ta.value; guardar(); });
+      d.appendChild(ta);
+      c.appendChild(d);
+    });
     $('tiempo-txt').textContent = estado.horaFin
       ? 'Inicio: ' + fechaHora(estado.horaInicio) + ' · Fin: ' + fechaHora(estado.horaFin) + ' · Tiempo total: ' + duracionTxt(duracionMin())
       : 'Inicio: ' + fechaHora(estado.horaInicio) + ' · Al pulsar "Finalizar" se registra la hora de fin.';
+  }
+  const respuesta = (k) => {
+    const p = PREGUNTAS.find((x) => x.k === k);
+    return estado.cierre[k + 'n'] ? p.nada : (estado.cierre[k] || '').trim();
+  };
+  function duracionMin() {
+    if (!estado.horaInicio || !estado.horaFin) return null;
+    return Math.max(0, Math.round((new Date(estado.horaFin) - new Date(estado.horaInicio)) / 60000));
   }
   $('btn-finalizar').addEventListener('click', () => {
     if (estado.horaFin && !confirm('Ya se registró una hora de fin (' + fechaHora(estado.horaFin) + '). ¿Reemplazarla por la hora actual?')) return;
     estado.horaFin = new Date().toISOString();
     guardar();
+    enviarBaseDatos();
     mostrar('res');
   });
 
@@ -505,7 +643,7 @@
   };
   function radar(canvas, subs, opciones) {
     const o = Object.assign({ responsive: true, fuente: 11, ancho: 18 }, opciones || {});
-    return new Chart(canvas, {
+    const c = new Chart(canvas, {
       type: 'radar',
       data: {
         labels: subs.map((s) => partir(subEtq(s), o.ancho)),
@@ -529,11 +667,46 @@
             pointLabels: { font: { size: o.fuente }, color: '#222' }
           }
         },
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => 'N' + ctx.raw } } }
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { title: (it) => subEtq(subs[it[0].dataIndex]), label: (ctx) => 'Nivel N' + ctx.raw } }
+        }
       },
       plugins: [fondoBlanco]
     });
+    if (o.responsive) activarTip(c, subs);
+    return c;
   }
+  // Ayuda al pasar el cursor (o tocar) el nombre de un subatributo en el diagrama
+  function activarTip(chart, subs) {
+    const cv = chart.canvas, tip = $('tip');
+    cv._tip = { chart, subs };
+    if (cv._tipActivo) return;
+    cv._tipActivo = true;
+    const buscar = (ev) => {
+      const { chart: ch } = cv._tip;
+      const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+      const items = (ch.scales.r && ch.scales.r._pointLabelItems) || [];
+      return items.findIndex((it) => x >= it.left - 4 && x <= it.right + 4 && y >= it.top - 4 && y <= it.bottom + 4);
+    };
+    const ver = (ev) => {
+      const k = buscar(ev);
+      if (k < 0) { tip.hidden = true; cv.style.cursor = ''; return; }
+      const s = cv._tip.subs[k];
+      tip.innerHTML = '';
+      tip.appendChild(el('b', '', s.codigo + ' ' + s.nombre_es));
+      tip.appendChild(document.createTextNode(s.resumen || s.descripcion));
+      tip.hidden = false;
+      cv.style.cursor = 'help';
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      tip.style.left = Math.max(8, Math.min(ev.clientX + 14, window.innerWidth - w - 8)) + 'px';
+      tip.style.top = Math.max(8, Math.min(ev.clientY + 14, window.innerHeight - h - 8)) + 'px';
+    };
+    cv.addEventListener('mousemove', ver);
+    cv.addEventListener('click', ver);
+    cv.addEventListener('mouseleave', () => { tip.hidden = true; });
+  }
+  window.addEventListener('scroll', () => { $('tip').hidden = true; }, { passive: true });
 
   function renderResultados() {
     charts.forEach((c) => c.destroy());
@@ -543,11 +716,10 @@
     cab.innerHTML = '';
     cab.appendChild(el('h2', '', 'Resultados'));
     const meta = el('div', 'meta');
-    const ev = (k) => [i.ev[k].cargo, i.ev[k].area, i.ev[k].anios ? i.ev[k].anios + ' años' : ''].filter(Boolean).join(' · ') + (i.ev[k].nombre ? ' (' + i.ev[k].nombre + ')' : '');
-    [['Organización', i.org], ['Tipo / categoría', [i.tipo, i.cat].filter(Boolean).join(' · ')], ['Fecha', i.fecha],
-     ['Evaluador 1', ev(0)], ['Evaluador 2', ev(1)], ['Facilitadora', i.facil],
-     ['Tiempo total', duracionTxt(duracionMin())], ['Modelo', D.meta.version], ['Identificador', estado.id]
-    ].forEach(([k, v]) => { const d = el('div'); d.appendChild(el('b', '', k)); d.appendChild(document.createTextNode(v || '—')); meta.appendChild(d); });
+    const filas = [['Organización', i.org], ['Tipo / categoría', [i.tipo, i.cat].filter(Boolean).join(' · ')], ['Fecha', i.fecha]];
+    i.ev.forEach((v, k) => filas.push(['Evaluador ' + (k + 1), evTxt(v, true)]));
+    filas.push(['Facilitador(a)', i.facil], ['Tiempo total', duracionTxt(duracionMin())]);
+    filas.forEach(([k, v]) => { const d = el('div'); d.appendChild(el('b', '', k)); d.appendChild(document.createTextNode(v || '—')); meta.appendChild(d); });
     cab.appendChild(meta);
 
     charts.push(radar($('chart-general'), SUBS.map((x) => x.s), { ancho: 22, fuente: 10 }));
@@ -555,7 +727,7 @@
     const cont = $('res-radares');
     cont.innerHTML = '';
     D.atributos.forEach((a) => {
-      const card = el('div', 'card');
+      const card = el('div', 'radar-attr');
       const h = el('h3', '', a.nombre_en + ': ');
       h.appendChild(el('span', 'rango', rangoAtributo(a)));
       card.appendChild(h);
@@ -565,36 +737,47 @@
       charts.push(radar(cv, a.subatributos));
     });
 
-    // Más y menos maduros
-    const ex = extremos(), dx = $('res-extremos');
+    // Subatributos ordenados por nivel (N5 a N1)
+    const { g, sin } = gruposPorNivel(), dx = $('res-orden');
     dx.innerHTML = '';
-    if (!ex) dx.appendChild(el('p', 'hint', 'Aún no hay niveles acordados.'));
-    else {
-      [['Más maduros (N' + ex.ma + ')', ex.mas], ['Menos maduros (N' + ex.mi + ')', ex.menos]].forEach(([t, l]) => {
-        dx.appendChild(el('h3', '', t));
-        const ul = el('ul');
-        l.forEach((c) => ul.appendChild(el('li', '', subEtqLarga(c.s))));
-        dx.appendChild(ul);
-      });
+    if (!g.length) dx.appendChild(el('p', 'hint', 'Aún no hay niveles acordados.'));
+    g.forEach((grp, j) => {
+      const fila = el('div', 'nivel-grupo');
+      const nn = el('div', 'ng-n', 'N' + grp.n);
+      if (g.length > 1 && j === 0) nn.appendChild(el('small', '', 'Más maduros'));
+      if (g.length > 1 && j === g.length - 1) nn.appendChild(el('small', '', 'Menos maduros'));
+      fila.appendChild(nn);
+      fila.appendChild(listaNodo(grp.subs.map(subEtqLarga), ''));
+      dx.appendChild(fila);
+    });
+    if (sin.length) {
+      const fila = el('div', 'nivel-grupo');
+      fila.appendChild(el('div', 'ng-n', 'Sin nivel'));
+      fila.appendChild(listaNodo(sin.map(subEtqLarga), ''));
+      dx.appendChild(fila);
     }
 
     // Tabla de niveles
     const tn = $('tabla-niveles');
     tn.innerHTML = '';
-    filaTabla(tn, ['Subatributo', 'Nivel acordado', 'Nivel sugerido', 'Ejemplo', 'Discrepancia'], true);
+    filaTabla(tn, ['Subatributo', 'Nivel acordado', 'Nivel sugerido', 'Discrepancia'], true);
     SUBS.forEach((x) => {
       const st = subEstado(x.s.codigo), ac = st.acordado;
-      filaTabla(tn, [subEtqLarga(x.s), ac ? 'N' + ac : '—', 'N' + sugerido(x.s), st.ejemplo || '—', discTxt(st)], false, [1, 2]);
+      filaTabla(tn, [subEtqLarga(x.s), ac ? 'N' + ac : '—', 'N' + sugerido(x.s), discTxt(st)], false, [1, 2]);
     });
 
     renderRuta();
     renderVerificacion();
   }
   function discTxt(st) {
-    if (st.disc === 'si') return 'Sí' + ([st.p1, st.p2].filter(Boolean).length ? ' (' + [st.p1, st.p2].map((v) => v ? 'N' + v : '?').join(' / ') + ')' : '');
+    if (st.disc === 'si') {
+      const p = (st.prop || []).slice(0, estado.inicio.ev.length);
+      return 'Sí' + (p.some(Boolean) ? ' (' + p.map((v) => v ? 'N' + v : '?').join(' / ') + ')' : '');
+    }
     if (st.disc === 'no') return 'No';
     return '—';
   }
+  const dudasTxt = (st) => st.sinDudas ? 'No hubo dudas ni dificultades' : (st.dudas || '').trim();
   function filaTabla(t, celdas, cab, num) {
     const tr = el('tr');
     celdas.forEach((c, j) => {
@@ -610,21 +793,32 @@
     items.forEach((t) => ul.appendChild(el('li', '', t)));
     return ul;
   }
-  function textoFaltan(it) {
-    if (it.faltan.length) return it.faltan.map(compTxt);
-    return [];
-  }
   const VACIO_FALTAN = 'Ninguno: todos los componentes exigidos en el siguiente nivel están marcados';
 
   function renderRuta() {
     const { ruta, incons, max } = hojaDeRuta();
-    const t = $('tabla-ruta');
-    t.innerHTML = '';
-    filaTabla(t, ['Prioridad', 'Subatributo', 'Nivel actual', 'Siguiente nivel', 'Qué exige (descriptor del siguiente nivel)', 'Componentes faltantes', 'Prioritario para la empresa'], true);
+    const cont = $('ruta');
+    cont.innerHTML = '';
     ruta.forEach((it) => {
-      filaTabla(t, [String(it.prioridad), subEtqLarga(it.s),
-        'N' + it.n + (it.fuente === 'sugerido' ? ' (sugerido; falta acordar)' : ''),
-        'N' + it.siguiente, it.exige, listaNodo(textoFaltan(it), VACIO_FALTAN), it.prior ? 'Sí' : 'No'], false, [0, 2, 3, 6]);
+      const d = el('div', 'ruta-item');
+      const cab = el('div', 'ruta-cab');
+      cab.appendChild(el('span', 'ruta-num', String(it.prioridad)));
+      const sub = el('span', 'ruta-sub', subEtq(it.s) + ' ');
+      sub.appendChild(el('small', '', '(' + it.s.nombre_es + ')'));
+      cab.appendChild(sub);
+      cab.appendChild(el('span', 'ruta-salto', 'N' + it.n + ' → N' + it.siguiente + (it.fuente === 'sugerido' ? ' (sugerido; falta acordar)' : '')));
+      cab.appendChild(el('span', 'ruta-prior' + (it.prior ? ' si' : ''), 'Prioritario para la empresa: ' + (it.prior ? 'Sí' : 'No')));
+      d.appendChild(cab);
+      const cu = el('div', 'ruta-cuerpo');
+      const c1 = el('div');
+      c1.appendChild(el('h4', '', 'Qué exige N' + it.siguiente));
+      c1.appendChild(el('p', '', it.exige));
+      const c2 = el('div');
+      c2.appendChild(el('h4', '', 'Componentes faltantes'));
+      c2.appendChild(listaNodo(it.faltan.map(compTxt), VACIO_FALTAN));
+      cu.appendChild(c1); cu.appendChild(c2);
+      d.appendChild(cu);
+      cont.appendChild(d);
     });
     const di = $('ruta-incons');
     di.innerHTML = '';
@@ -650,7 +844,7 @@
     const derivados = ruta.filter((it) => it.fuente === 'acordado' && it.exige && it.siguiente <= NMAX);
     return [
       { ok: !sin.length, t: '¿Los ' + TOTAL + ' subatributos tienen nivel acordado?', d: (TOTAL - sin.length) + ' de ' + TOTAL + (sin.length ? '. Sin nivel: ' + sin.join(', ') : '') },
-      { ok: !sin.length && charts.length > 0, t: '¿Se generó el perfil?', d: !sin.length ? 'Diagrama de araña de los ' + TOTAL + ' subatributos, rango por atributo y subatributos más y menos maduros.' : 'Perfil incompleto: faltan niveles acordados.' },
+      { ok: !sin.length && charts.length > 0, t: '¿Se generó el perfil?', d: !sin.length ? 'Diagrama de araña de los ' + TOTAL + ' subatributos, rango por atributo y subatributos ordenados por nivel.' : 'Perfil incompleto: faltan niveles acordados.' },
       { ok: !sin.length && derivados.length === bajo5.length, t: '¿Cada subatributo bajo N' + NMAX + ' tiene su siguiente nivel derivado?', d: derivados.length + ' de ' + bajo5.length + ' subatributos bajo N' + NMAX + ' tienen siguiente nivel, descriptor y componentes faltantes.' }
     ];
   }
@@ -665,13 +859,14 @@
       ul.appendChild(li);
     });
     const extra = el('li');
-    extra.appendChild(el('span', 'hint', 'Prioridades marcadas: ' + estado.prioridades.length + ' de ' + MAX_PRIOR +
-      ' · Tiempo total: ' + duracionTxt(duracionMin()) + ' · Inconsistencias: ' + hojaDeRuta().incons.length));
+    extra.appendChild(el('span', 'hint', 'Prioridades: ' + modoPriorTxt() + ' (' + listaPrior().length + ') · Tiempo total: ' +
+      duracionTxt(duracionMin()) + ' · Inconsistencias: ' + hojaDeRuta().incons.length +
+      ' · Base de datos: ' + (estado.envio ? 'enviada el ' + fechaHora(estado.envio) : (CFG.urlBaseDatos ? 'no enviada' : 'no configurada'))));
     ul.appendChild(extra);
   }
 
   /* ================= PDF para la empresa ================= */
-  const pdfTxt = (s) => String(s == null ? '' : s).replace(/—/g, '-').replace(/[●]/g, '*').replace(/[○]/g, 'o').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+  const pdfTxt = (s) => String(s == null ? '' : s).replace(/—/g, '-').replace(/→/g, '->').replace(/[●★]/g, '*').replace(/[○]/g, 'o').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
 
   function imagenRadar(subs, w, h, ancho, fuente) {
     const box = el('div', 'oculto-render');
@@ -709,8 +904,8 @@
     doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
     y = 112;
     [['Fecha de la evaluación', i.fecha], ['Tipo', i.tipo], ['Categoría', i.cat],
-     ['Evaluadores', [0, 1].map((k) => [i.ev[k].cargo, i.ev[k].area].filter(Boolean).join(', ')).filter(Boolean).join('; ')],
-     ['Facilitadora', i.facil], ['Modelo', D.meta.nombre + ' - ' + D.meta.version]
+     ['Evaluadores', i.ev.map((v) => [v.cargo, areaTxt(v)].filter(Boolean).join(', ')).filter(Boolean).join('; ')],
+     ['Facilitador(a)', i.facil], ['Modelo', D.meta.nombre + ' - ' + D.meta.version]
     ].forEach(([k, v]) => {
       const l = doc.splitTextToSize(pdfTxt(k + ': ' + (v || '-')), AN);
       doc.text(l, M, y); y += l.length * 5.5 + 1;
@@ -724,8 +919,8 @@
       'El modelo evalúa ' + D.atributos.length + ' atributos y ' + TOTAL + ' subatributos. Cada subatributo se ubica en uno de cinco niveles: ' +
         NIV.map((n) => 'N' + n.n + ' ' + n.nombre).join('; ') + '.',
       'Regla acumulativa: un subatributo se ubica en el nivel más alto cuyas prácticas exigidas cumple por completo, junto con las de todos los niveles anteriores. Si cumple solo una parte del nivel siguiente, permanece en el nivel inferior. Cada descriptor describe solo lo propio de su nivel; lo exigido en los niveles anteriores se presupone.',
-      'El nivel de cada subatributo fue acordado por consenso de los dos evaluadores de la organización, con la matriz de componentes como lista de verificación. El "nivel sugerido" es el que resulta de las prácticas marcadas en esa matriz.',
-      'El resultado no se resume en un nivel global ni en promedios, porque los niveles son etapas acumulativas. Se presenta como un perfil: un diagrama de araña de los ' + TOTAL + ' subatributos (escala 0 a 5, donde 0 indica que no se asignó nivel) y un diagrama por atributo con su rango.',
+      'El nivel de cada subatributo fue acordado por consenso de los evaluadores de la organización, con la matriz de componentes como lista de verificación. El "nivel sugerido" es el que resulta de las prácticas marcadas en esa matriz.',
+      'El resultado se presenta como un perfil: un diagrama de araña de los ' + TOTAL + ' subatributos (escala 0 a 5, donde 0 indica que no se asignó nivel) y un diagrama por atributo con su rango. El modelo no asigna un nivel global ni por atributo, porque los niveles son etapas acumulativas; el promedio que acompaña a cada atributo es solo una referencia.',
       'La hoja de ruta indica, para cada subatributo, el siguiente nivel a alcanzar, lo que ese nivel exige y los componentes de la matriz que aún faltan. Se ordena de menor a mayor nivel actual. No incluye plazos, costos ni responsables, que corresponden a la planificación interna de la organización.'
     ].forEach((p) => { y = parrafo(p, y, 10.5) + 2; });
 
@@ -740,69 +935,98 @@
       doc.text(pdfTxt(a.nombre_en + ': ' + rangoAtributo(a)), M, y);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
       doc.text(pdfTxt(a.nombre_es), M, y + 5);
+      // Promedio referencial en la esquina superior derecha
+      const pr = promedioRef(a);
+      if (pr != null) {
+        doc.setDrawColor(150); doc.setFillColor(245, 247, 248);
+        doc.roundedRect(W - M - 46, y - 5, 46, 15, 1.5, 1.5, 'FD');
+        doc.setFontSize(7.5); doc.setTextColor(90);
+        doc.text('Promedio referencial', W - M - 23, y - 0.5, { align: 'center' });
+        doc.setFontSize(12); doc.setTextColor(0); doc.setFont('helvetica', 'bold');
+        doc.text(dec(pr), W - M - 23, y + 5.5, { align: 'center' });
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(110);
+        doc.text(pdfTxt('(no forma parte del modelo)'), W - M - 23, y + 8.8, { align: 'center' });
+        doc.setTextColor(0);
+      }
       const h = 112;
-      doc.addImage(imagenRadar(a.subatributos, 1000, 800, 20, 15), 'PNG', M + (AN - h * 1.25) / 2, y + 8, h * 1.25, h);
-      y += 132; k++;
+      doc.addImage(imagenRadar(a.subatributos, 1000, 800, 20, 15), 'PNG', M + (AN - h * 1.25) / 2, y + 12, h * 1.25, h);
+      y += 134; k++;
     });
 
-    // Más y menos maduros + tabla de niveles
+    // Subatributos ordenados por nivel + tabla de niveles
     doc.addPage();
-    tit('Niveles por subatributo', 22);
-    y = 28;
-    const ex = extremos();
-    if (ex) {
-      y = parrafo('Más maduros (N' + ex.ma + '): ' + ex.mas.map((c) => c.s.codigo + ' ' + c.s.nombre_en).join('; ') + '.', y);
-      y = parrafo('Menos maduros (N' + ex.mi + '): ' + ex.menos.map((c) => c.s.codigo + ' ' + c.s.nombre_en).join('; ') + '.', y);
-    }
+    tit('Subatributos ordenados por nivel', 22);
+    const { g } = gruposPorNivel();
     doc.autoTable({
-      startY: y + 2, margin: { left: M, right: M },
-      head: [['Subatributo', 'Nivel acordado', 'Nivel sugerido', 'Ejemplo', 'Discrepancia']],
+      startY: 27, margin: { left: M, right: M },
+      head: [['Nivel', 'Subatributos']],
+      body: g.map((grp, j) => ['N' + grp.n + (g.length > 1 && j === 0 ? '\nMás maduros' : '') + (g.length > 1 && j === g.length - 1 ? '\nMenos maduros' : ''),
+        pdfTxt(grp.subs.map((s) => subEtqLarga(s)).join('\n'))]),
+      styles: { fontSize: 8, cellPadding: 1.6, valign: 'top' },
+      headStyles: { fillColor: [31, 78, 121] },
+      columnStyles: { 0: { cellWidth: 26, fontStyle: 'bold' } }
+    });
+    doc.addPage(); y = 22;
+    tit('Niveles por subatributo', y);
+    doc.autoTable({
+      startY: y + 4, margin: { left: M, right: M },
+      head: [['Subatributo', 'Nivel acordado', 'Nivel sugerido', 'Discrepancia']],
       body: SUBS.map((x) => {
         const st = subEstado(x.s.codigo);
-        return [pdfTxt(subEtqLarga(x.s)), st.acordado ? 'N' + st.acordado : '-', 'N' + sugerido(x.s), pdfTxt(st.ejemplo || '-'), pdfTxt(discTxt(st))];
+        return [pdfTxt(subEtqLarga(x.s)), st.acordado ? 'N' + st.acordado : '-', 'N' + sugerido(x.s), pdfTxt(discTxt(st))];
       }),
       styles: { fontSize: 8, cellPadding: 1.6, valign: 'top' },
       headStyles: { fillColor: [31, 78, 121] },
-      columnStyles: { 0: { cellWidth: 55 }, 1: { cellWidth: 18, halign: 'center' }, 2: { cellWidth: 18, halign: 'center' }, 4: { cellWidth: 24 } }
+      columnStyles: { 1: { cellWidth: 24, halign: 'center' }, 2: { cellWidth: 24, halign: 'center' }, 3: { cellWidth: 34 } }
     });
 
-    // Hoja de ruta
+    // Hoja de ruta: un bloque por subatributo
     const { ruta, incons, max } = hojaDeRuta();
-    doc.addPage('a4', 'landscape');
-    const WL = 297, ANL = WL - 2 * M;
-    tit('Hoja de ruta', 18);
+    doc.addPage();
+    tit('Hoja de ruta', 20);
     doc.setFontSize(9);
-    doc.text(doc.splitTextToSize(pdfTxt('Siguiente nivel de cada subatributo, ordenado de menor a mayor nivel actual (empates en el orden del modelo). Sin plazos, costos ni responsables.'), ANL), M, 24);
-    doc.autoTable({
-      startY: 30, margin: { left: M, right: M },
-      head: [['Prioridad', 'Subatributo', 'Nivel actual', 'Siguiente nivel', 'Qué exige (descriptor del siguiente nivel)', 'Componentes faltantes', 'Prioritario para la empresa']],
-      body: ruta.map((it) => [String(it.prioridad), pdfTxt(subEtqLarga(it.s)),
-        'N' + it.n + (it.fuente === 'sugerido' ? ' (sugerido)' : ''), 'N' + it.siguiente, pdfTxt(it.exige),
-        pdfTxt(it.faltan.length ? it.faltan.map((r) => '- ' + compTxt(r)).join('\n') : VACIO_FALTAN), it.prior ? 'Sí' : 'No']),
-      styles: { fontSize: 7.2, cellPadding: 1.5, valign: 'top' },
-      headStyles: { fillColor: [31, 78, 121], fontSize: 7.5 },
-      columnStyles: { 0: { cellWidth: 15, halign: 'center' }, 1: { cellWidth: 38 }, 2: { cellWidth: 16, halign: 'center' }, 3: { cellWidth: 16, halign: 'center' }, 4: { cellWidth: 82 }, 6: { cellWidth: 20, halign: 'center' } }
+    doc.text(doc.splitTextToSize(pdfTxt('Siguiente nivel de cada subatributo, ordenado de menor a mayor nivel actual (empates en el orden del modelo). Sin plazos, costos ni responsables.'), AN), M, 26);
+    y = 33;
+    ruta.forEach((it) => {
+      // Estima la altura del bloque para no separar su cabecera de su contenido
+      doc.setFontSize(7.6);
+      const lineas = Math.max(doc.splitTextToSize(pdfTxt(it.exige), AN / 2 - 4).length,
+        it.faltan.reduce((t, r) => t + doc.splitTextToSize(pdfTxt('- ' + compTxt(r)), AN / 2 - 4).length, 0) || 2);
+      if (y + 16 + lineas * 3.6 > 282) { doc.addPage(); y = 18; }
+      doc.autoTable({
+        startY: y, margin: { left: M, right: M }, rowPageBreak: 'avoid',
+        head: [[{ content: pdfTxt(it.prioridad + '.  ' + subEtqLarga(it.s) + '   |   N' + it.n + ' -> N' + it.siguiente +
+            (it.fuente === 'sugerido' ? ' (sugerido)' : '') + '   |   Prioritario para la empresa: ' + (it.prior ? 'Sí' : 'No')), colSpan: 2 }],
+          ['Qué exige N' + it.siguiente, 'Componentes faltantes']],
+        body: [[pdfTxt(it.exige), pdfTxt(it.faltan.length ? it.faltan.map((r) => '- ' + compTxt(r)).join('\n') : VACIO_FALTAN)]],
+        styles: { fontSize: 7.6, cellPadding: 1.8, valign: 'top' },
+        headStyles: { fillColor: [238, 241, 243], textColor: 30, fontSize: 8 },
+        didParseCell: (d) => {
+          if (d.section === 'head' && d.row.index === 0) { d.cell.styles.fillColor = it.prior ? [255, 240, 205] : [31, 78, 121]; d.cell.styles.textColor = it.prior ? 40 : 255; }
+        },
+        columnStyles: { 0: { cellWidth: AN / 2 }, 1: { cellWidth: AN / 2 } }
+      });
+      y = doc.lastAutoTable.finalY + 5;
     });
     if (incons.length) {
-      let yy = doc.lastAutoTable.finalY + 8;
-      if (yy > 180) { doc.addPage('a4', 'landscape'); yy = 18; }
+      if (y > 240) { doc.addPage(); y = 18; }
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-      doc.text(pdfTxt('Inconsistencias: componentes de niveles ya alcanzados que no están marcados'), M, yy);
+      doc.text(pdfTxt('Inconsistencias: componentes de niveles ya alcanzados que no están marcados'), M, y + 3);
       doc.setFont('helvetica', 'normal');
       doc.autoTable({
-        startY: yy + 3, margin: { left: M, right: M },
+        startY: y + 6, margin: { left: M, right: M },
         head: [['Subatributo', 'Nivel actual', 'Nivel del componente', 'Componente no marcado']],
         body: incons.map((x) => [pdfTxt(subEtqLarga(x.it.s)), 'N' + x.it.n, 'N' + x.n, pdfTxt(compTxt(x.r))]),
         styles: { fontSize: 7.5, cellPadding: 1.5 }, headStyles: { fillColor: [120, 120, 120] }
       });
+      y = doc.lastAutoTable.finalY + 5;
     }
     if (max.length) {
-      let yy = doc.lastAutoTable.finalY + 8;
-      if (yy > 180) { doc.addPage('a4', 'landscape'); yy = 18; }
+      if (y > 255) { doc.addPage(); y = 18; }
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-      doc.text(pdfTxt('Nivel máximo alcanzado (N' + NMAX + ')'), M, yy);
+      doc.text(pdfTxt('Nivel máximo alcanzado (N' + NMAX + ')'), M, y + 3);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-      doc.text(max.map((it) => pdfTxt('- ' + subEtqLarga(it.s))), M, yy + 6);
+      doc.text(max.map((it) => pdfTxt('- ' + subEtqLarga(it.s))), M, y + 9);
     }
 
     // Pie en todas las páginas
@@ -832,6 +1056,12 @@
       XLSX.utils.book_append_sheet(wb, ws, nombre);
     };
     const ver = verificacion();
+    const filasEv = [];
+    i.ev.forEach((v, k) => {
+      const p = 'Evaluador ' + (k + 1) + ': ';
+      filasEv.push([p + 'cargo', v.cargo], [p + 'área', areaTxt(v)], [p + 'años de experiencia', v.anios],
+        [p + 'nombre', anon || v.anon ? '' : v.nombre]);
+    });
     hoja('Datos generales', [
       ['Campo', 'Valor'],
       ['Identificador de la evaluación', estado.id],
@@ -840,31 +1070,32 @@
       ['Fecha del modelo', estado.modelo.fecha],
       ['Organización', anon ? 'Organización X' : i.org],
       ['Tipo', i.tipo], ['Categoría', i.cat], ['Fecha de la evaluación', i.fecha],
-      ['Evaluador 1: cargo', i.ev[0].cargo], ['Evaluador 1: área', i.ev[0].area], ['Evaluador 1: años de experiencia', i.ev[0].anios],
-      ['Evaluador 1: nombre', anon ? '' : i.ev[0].nombre],
-      ['Evaluador 2: cargo', i.ev[1].cargo], ['Evaluador 2: área', i.ev[1].area], ['Evaluador 2: años de experiencia', i.ev[1].anios],
-      ['Evaluador 2: nombre', anon ? '' : i.ev[1].nombre],
-      ['Facilitadora', i.facil],
+      ['Número de evaluadores', i.ev.length],
+      ...filasEv,
+      ['Facilitador(a)', i.facil],
       ['Hora de inicio', fechaHora(estado.horaInicio)], ['Hora de fin', fechaHora(estado.horaFin)],
       ['Tiempo total (min)', duracionMin() == null ? '' : duracionMin()],
-      ['Subatributos prioritarios', estado.prioridades.join(', ')],
-      ['Notas de la facilitadora: inducción', estado.cierre.nInd],
-      ['Notas de la facilitadora: evaluación', estado.cierre.nEval],
+      ['Prioridades: cómo se definieron', modoPriorTxt()],
+      ['Subatributos prioritarios', listaPrior().join(', ')],
+      ['Enviado a la base de datos', estado.envio ? fechaHora(estado.envio) : 'No'],
       ['Anonimizado', anon ? 'Sí' : 'No'],
       [],
       ['Verificación H.E.3', 'Resultado'],
       ...ver.map((v) => [v.t, (v.ok ? 'Sí. ' : 'No. ') + v.d])
     ], [44, 90]);
 
+    const nEv = i.ev.length;
     hoja('Niveles', [
-      ['Código', 'Atributo', 'Subatributo (inglés)', 'Subatributo (español)', 'Nivel acordado', 'Nivel sugerido', 'Nota (acordado ≠ sugerido)', 'Ejemplo que sustenta el nivel', 'Discrepancia', 'Nivel propuesto evaluador 1', 'Nivel propuesto evaluador 2', 'Dudas o dificultades', 'Prioritario'],
+      ['Código', 'Atributo', 'Subatributo (inglés)', 'Subatributo (español)', 'Nivel acordado', 'Nivel sugerido', 'Nota (acordado ≠ sugerido)', 'Discrepancia',
+        ...i.ev.map((v, k) => 'Nivel propuesto evaluador ' + (k + 1)), 'Dudas o dificultades', 'Prioritario'],
       ...SUBS.map((x) => {
         const st = subEstado(x.s.codigo);
-        return [x.s.codigo, x.a.nombre_en, x.s.nombre_en, x.s.nombre_es, st.acordado || '', sugerido(x.s), st.notaDif, st.ejemplo,
-          st.disc === 'si' ? 'Sí' : st.disc === 'no' ? 'No' : '', st.disc === 'si' ? st.p1 : '', st.disc === 'si' ? st.p2 : '', st.dudas,
-          estado.prioridades.includes(x.s.codigo) ? 'Sí' : 'No'];
+        return [x.s.codigo, x.a.nombre_en, x.s.nombre_en, x.s.nombre_es, st.acordado || '', sugerido(x.s), st.notaDif,
+          st.disc === 'si' ? 'Sí' : st.disc === 'no' ? 'No' : '',
+          ...Array.from({ length: nEv }, (_, k) => st.disc === 'si' ? (st.prop[k] || '') : ''),
+          dudasTxt(st), esPrior(x.s.codigo) ? 'Sí' : 'No'];
       })
-    ], [8, 24, 36, 36, 10, 10, 30, 40, 11, 12, 12, 40, 10]);
+    ], [8, 24, 36, 36, 10, 10, 30, 11, ...Array(nEv).fill(12), 40, 10]);
 
     const comp = [['Subatributo', 'Componente', 'Nombre del componente', 'Nivel', 'Texto de la celda', 'Marcado']];
     SUBS.forEach((x) => celdasReq(x.s).forEach((r) => comp.push([x.s.codigo, r.c.codigo, r.c.nombre, 'N' + r.n, r.t, marcada(x.s.codigo, r.k) ? 'Sí' : 'No'])));
@@ -883,17 +1114,14 @@
     hoja('Hoja de ruta', hr, [9, 40, 12, 12, 70, 60, 12]);
 
     const dif = [['Dificultad', 'Subatributo o componente', 'Origen', 'Posible mejora']];
-    SUBS.forEach((x) => { const d = subEstado(x.s.codigo).dudas; if (d && d.trim()) dif.push([d.trim(), x.s.codigo + ' ' + x.s.nombre_en, 'Nota de evaluación (registro por subatributo)', '']); });
-    [['p1', 'Pregunta de cierre 1'], ['p2', 'Pregunta de cierre 2'], ['p3', 'Pregunta de cierre 3'], ['nInd', 'Nota de inducción'], ['nEval', 'Nota de evaluación']]
-      .forEach(([k, o]) => { const v = estado.cierre[k]; if (v && v.trim()) dif.push([v.trim(), '', o, '']); });
-    hoja('Dificultades', dif, [60, 30, 32, 40]);
+    SUBS.forEach((x) => {
+      const st = subEstado(x.s.codigo);
+      if (!st.sinDudas && st.dudas && st.dudas.trim()) dif.push([st.dudas.trim(), x.s.codigo + ' ' + x.s.nombre_en, 'Registro por subatributo', '']);
+    });
+    PREGUNTAS.forEach((p, j) => { if (!estado.cierre[p.k + 'n'] && respuesta(p.k)) dif.push([respuesta(p.k), '', 'Pregunta de cierre ' + (j + 1), '']); });
+    hoja('Dificultades', dif, [60, 30, 28, 40]);
 
-    hoja('Respuestas de cierre', [
-      ['Pregunta', 'Respuesta'],
-      ['1. ¿Qué descriptores o subatributos les costó interpretar, y por qué?', estado.cierre.p1],
-      ['2. ¿Qué dificultades tuvieron con la herramienta web?', estado.cierre.p2],
-      ['3. ¿Qué cambiarían para que el modelo sea más útil para su empresa?', estado.cierre.p3]
-    ], [60, 90]);
+    hoja('Respuestas de cierre', [['Pregunta', 'Respuesta'], ...PREGUNTAS.map((p) => [p.t, respuesta(p.k)])], [60, 90]);
 
     XLSX.writeFile(wb, nombreArchivo('Evaluacion_BIL-Lima', 'xlsx', anon));
   }
@@ -917,11 +1145,10 @@
       if (!s || !s.id || !s.subs || !s.inicio) { mensaje('El archivo no corresponde a una evaluación BIL-Lima.'); return; }
       const vArch = s.modelo && s.modelo.version;
       if (vArch !== D.meta.version && !confirm('La evaluación se hizo con el modelo "' + (vArch || 'desconocido') + '" y la app usa "' + D.meta.version + '". Los componentes que ya no existan se ignorarán. ¿Importar de todos modos?')) return;
-      if (!confirm('Se reemplazará la evaluación abierta por la del archivo (ID ' + s.id + '). ¿Continuar?')) return;
-      estado = Object.assign(nuevoEstado(), s);
+      if (!confirm('Se reemplazará la evaluación abierta por la del archivo. ¿Continuar?')) return;
+      estado = normalizar(s);
       guardar();
       mensaje('Evaluación importada.', true);
-      pintarPie();
       mostrar(estado.vista || 'inicio');
     };
     r.readAsText(f);
@@ -930,29 +1157,28 @@
     if (!confirm('Se borrará la evaluación abierta en este navegador (exporte el JSON antes si desea conservarla). ¿Iniciar una nueva?')) return;
     estado = nuevoEstado();
     guardar();
-    pintarPie();
     mostrar('inicio');
   });
 
   /* ================= Base de datos (Google Sheets) ================= */
-  const urlBD = (CFG.urlBaseDatos || '').trim();
-  $('btn-enviar').disabled = !urlBD;
-  $('enviar-txt').textContent = urlBD ? '' : 'Base de datos no configurada (config.js).';
-  $('btn-enviar').addEventListener('click', () => {
-    if (!urlBD) return;
-    const cuerpo = JSON.stringify({ evaluacion: estado, niveles: SUBS.map((x) => ({ codigo: x.s.codigo, acordado: acordado(x.s.codigo), sugerido: sugerido(x.s) })) });
-    fetch(urlBD, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: cuerpo })
-      .then(() => mensaje('Evaluación enviada a la base de datos.', true))
-      .catch((e) => mensaje('No se pudo enviar: ' + e.message));
-  });
+  // Se envía automáticamente al pulsar "Finalizar", si config.js tiene la URL
+  function enviarBaseDatos() {
+    const url = (CFG.urlBaseDatos || '').trim();
+    if (!url) return;
+    const cuerpo = JSON.stringify({
+      evaluacion: estado,
+      niveles: SUBS.map((x) => ({ codigo: x.s.codigo, acordado: acordado(x.s.codigo), sugerido: sugerido(x.s) })),
+      prioritarios: listaPrior()
+    });
+    fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: cuerpo })
+      .then(() => { estado.envio = new Date().toISOString(); guardar(); })
+      .catch((e) => console.warn('No se pudo enviar a la base de datos:', e));
+  }
 
   /* ================= Arranque ================= */
-  function pintarPie() {
-    $('app-version').textContent = D.meta.version + ' · ' + D.meta.fecha;
-    $('pie').textContent = D.meta.nombre + ' · ' + D.meta.version + ' (' + D.meta.fecha + ') · Evaluación ' + estado.id;
-  }
+  $('app-version').textContent = D.meta.version;
+  $('pie').textContent = D.meta.nombre + ' · ' + D.meta.version + ' (' + D.meta.fecha + ')';
   cargar();
-  pintarPie();
   mostrar(estado.vista || 'inicio');
-  window.BIL_APP = { estado: () => estado, sugerido, hojaDeRuta };   // para pruebas
+  window.BIL_APP = { estado: () => estado, sugerido, hojaDeRuta, propuestaApp };   // para pruebas
 })();
