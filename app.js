@@ -405,51 +405,79 @@
     card.appendChild(h);
     card.appendChild(el('p', 'desc', s.descripcion));
 
-    // Matriz de componentes: una escalera de evolución por componente
-    card.appendChild(el('h3', '', 'Componentes: ¿hasta dónde llega cada práctica?'));
+    // Matriz de componentes: en cada fila se marca la práctica más alta que se cumple;
+    // las anteriores de la misma fila se marcan solas (regla acumulativa)
+    card.appendChild(el('h3', '', 'Matriz de componentes'));
     const ley = el('div', 'leyenda');
-    ley.appendChild(el('p', '', 'En cada componente, elijan el peldaño más alto que la organización cumple. Los peldaños anteriores se dan por cumplidos.'));
-    const chips = el('div', 'chips');
-    [['proy', 'Proyecto' + (estado.inicio.proyNombre ? ': ' + estado.inicio.proyNombre : '')], ['emp', 'Empresa'], ['partes', 'Entre las partes']]
-      .forEach(([k, t]) => chips.appendChild(el('span', 'chip alc-' + k, t)));
-    ley.appendChild(chips);
+    ley.appendChild(el('p', 'ayuda', 'Marquen en cada fila la práctica más alta que cumple la empresa; las anteriores se marcan solas. Si la práctica no existe, pulsen "Aún no".'));
+    ley.appendChild(el('p', '', '"○" ya está cubierto por acumulación · "·" aún no se exige en ese nivel.'));
     card.appendChild(ley);
-    const lista = el('div', 'comps');
-    lista.id = 'comps';
+    const wrap = el('div', 'tabla-scroll');
+    const t = el('table', 'matriz');
+    const th = el('thead'), trh = el('tr');
+    trh.appendChild(el('th', 'th-comp', 'Componente'));
+    NIV.forEach((nv) => {
+      const [k, txt] = ALCANCE[nv.n] || ['emp', ''];
+      const h = el('th', 'alc-' + k + (nv.n === 1 ? ' n1' : ''), 'N' + nv.n);
+      if (nv.n > 1) h.appendChild(el('small', '', txt));
+      trh.appendChild(h);
+    });
+    trh.appendChild(el('th', 'th-llega', 'Llega a'));
+    th.appendChild(trh); t.appendChild(th);
+    const tb = el('tbody');
+    tb.id = 'comps';
     s.componentes.forEach((c) => {
       const ps = peldanos(c);
       if (!ps.length) return;
-      const fila = el('div', 'comp');
-      fila.dataset.c = c.codigo;
-      const nom = el('div', 'comp-nom');
-      nom.appendChild(el('span', 'cod', c.codigo + '. '));
-      nom.appendChild(document.createTextNode(c.nombre));
-      fila.appendChild(nom);
-      const esc = el('div', 'escalera');
-      esc.setAttribute('role', 'radiogroup');
-      esc.setAttribute('aria-label', c.codigo + ' ' + c.nombre);
-      const boton = (n, cls, titulo, texto) => {
-        const b = el('button', 'peld ' + cls);
-        b.type = 'button'; b.dataset.r = n;
-        b.setAttribute('role', 'radio');
-        b.appendChild(el('span', 'pn', titulo));
-        if (texto) b.appendChild(el('span', 'pt', texto));
-        b.addEventListener('click', () => {
-          st.r[c.codigo] = n;
-          guardar(); pintarEscalera(fila, n); refrescarNivel();
-        });
-        esc.appendChild(b);
-      };
-      boton(0, 'cero', 'Aún no', '');
-      ps.forEach((p) => {
-        const [k, t] = ALCANCE[p.n] || ['emp', ''];
-        boton(p.n, 'alc-' + k, 'N' + p.n + ' · ' + t, p.t);
+      const tr = el('tr', 'comp');
+      tr.dataset.c = c.codigo;
+      const td0 = el('td', 'td-comp');
+      td0.appendChild(el('span', 'cod', c.codigo + '. '));
+      td0.appendChild(document.createTextNode(c.nombre));
+      tr.appendChild(td0);
+      const fijar = (r) => { st.r[c.codigo] = r; guardar(); pintarFila(tr, c, r); refrescarNivel(); };
+      c.niveles.forEach((x, i) => {
+        const n = i + 1, td = el('td', 'cel');
+        td.dataset.n = 'N' + n; td.dataset.niv = n;
+        if (n === 1) {
+          td.classList.add('aun');
+          const b = el('button', 'aun-no', 'Aún no');
+          b.type = 'button';
+          b.title = 'La práctica no existe en la empresa';
+          b.addEventListener('click', () => fijar(0));
+          td.appendChild(b);
+        }
+        if (x.e === '●') {
+          const k = c.codigo + '@' + n;
+          td.classList.add('req', 'alc-' + (ALCANCE[n] || ['emp'])[0]);
+          const lb = el('label');
+          const cb = el('input');
+          cb.type = 'checkbox'; cb.dataset.k = k;
+          cb.setAttribute('aria-label', c.codigo + ' N' + n + (x.t ? ': ' + x.t : ''));
+          cb.addEventListener('change', () => {
+            // Marcar sube la fila hasta este nivel; desmarcar la baja a la práctica anterior
+            const previas = ps.filter((p) => p.n < n);
+            fijar(cb.checked ? n : (previas.length ? previas[previas.length - 1].n : 0));
+          });
+          lb.appendChild(cb);
+          lb.appendChild(el('span', '', x.t || '●'));
+          td.appendChild(lb);
+        } else if (x.e === '○') {
+          td.classList.add('acum');
+          td.title = 'Cubierto por acumulación';
+          td.appendChild(el('span', 'sim', '○'));
+        } else if (n > 1) {
+          td.classList.add('vacia');
+          td.title = x.e === '·' ? 'Aún no se exige' : 'Sin contenido';
+          td.appendChild(el('span', 'sim', x.e === '-' ? '–' : x.e));
+        }
+        tr.appendChild(td);
       });
-      fila.appendChild(esc);
-      lista.appendChild(fila);
-      pintarEscalera(fila, st.r[c.codigo]);
+      tr.appendChild(el('td', 'llega'));
+      tb.appendChild(tr);
+      pintarFila(tr, c, st.r[c.codigo]);
     });
-    card.appendChild(lista);
+    t.appendChild(tb); wrap.appendChild(t); card.appendChild(wrap);
 
     card.appendChild(el('div', 'sugerido-txt')).id = 'sugerido-txt';
 
@@ -542,14 +570,22 @@
     refrescarInferior();
     guardar();
   }
-  function pintarEscalera(fila, r) {
-    fila.classList.toggle('pendiente', r == null);
-    fila.querySelectorAll('.peld').forEach((b) => {
-      const n = +b.dataset.r;
-      b.classList.toggle('lleno', r != null && n > 0 && n <= r);
-      b.classList.toggle('sel', r === n);
-      b.setAttribute('aria-checked', r === n ? 'true' : 'false');
+  function pintarFila(tr, c, r) {
+    tr.classList.toggle('pendiente', r == null);
+    tr.classList.remove('aviso-pend');
+    tr.querySelectorAll('td.cel').forEach((td) => {
+      const n = +td.dataset.niv;
+      const cb = td.querySelector('input');
+      if (cb) cb.checked = r != null && r >= n;
+      td.classList.toggle('marcada', !!cb && cb.checked);
+      td.classList.toggle('cubierta', td.classList.contains('acum') && r != null && r >= n);
     });
+    const bAun = tr.querySelector('.aun-no');
+    bAun.classList.toggle('sel', r === 0);
+    bAun.setAttribute('aria-pressed', r === 0 ? 'true' : 'false');
+    const ll = tr.querySelector('.llega');
+    ll.textContent = r == null ? '—' : r === 0 ? 'Aún no' : 'N' + r + ' ✓';
+    ll.classList.toggle('ok', !!r);
   }
   const propuestos = (st) => (st.prop || []).slice(0, estado.inicio.ev.length).filter(Boolean);
 
