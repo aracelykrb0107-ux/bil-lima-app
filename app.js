@@ -734,6 +734,7 @@
   };
   function radar(canvas, subs, opciones) {
     const o = Object.assign({ responsive: true, fuente: 11, ancho: 18 }, opciones || {});
+    Chart.defaults.font.family = "'Source Sans 3', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
     const c = new Chart(canvas, {
       type: 'radar',
       data: {
@@ -1010,7 +1011,14 @@
       return yy + l.length * (tam || 10) * 0.42 + 2;
     };
 
-    // Portada
+    // Portada: franja guinda con línea dorada
+    doc.setFillColor(122, 30, 44); doc.rect(0, 0, W, 36, 'F');
+    doc.setFillColor(201, 162, 39); doc.rect(0, 36, W, 2, 'F');
+    doc.setTextColor(242, 217, 135); doc.setFontSize(9);
+    doc.text(pdfTxt('Universidad Nacional de Ingeniería · Facultad de Ingeniería Civil'), M, 16);
+    doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    doc.text('BIL-Lima', M, 26);
+    doc.setTextColor(0);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
     doc.text('Perfil de madurez BIL-Lima', M, 60);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(12);
