@@ -72,7 +72,10 @@
       id: uuid(),
       modelo: { nombre: D.meta.nombre, version: D.meta.version, fecha: D.meta.fecha },
       creado: new Date().toISOString(), actualizado: null,
-      inicio: { org: '', fecha: hoy(), tipo: '', cat: '', ev: [evVacio(), evVacio()], facil: '' },
+      inicio: {
+        org: '', fecha: hoy(), tipo: '', cat: '', ev: [evVacio(), evVacio()], facil: '',
+        proyNombre: '', proyTipo: '', proyEtapa: '', proyDesc: ''
+      },
       horaInicio: null, horaFin: null, envio: null,
       vista: 'inicio', paso: 0,
       subs: {},                                 // codigo -> estado del subatributo
@@ -87,8 +90,10 @@
     e.inicio = Object.assign(nuevoEstado().inicio, s.inicio || {});
     e.inicio.ev = (e.inicio.ev || []).map((v) => Object.assign(evVacio(), v));
     while (e.inicio.ev.length < MIN_EV) e.inicio.ev.push(evVacio());
-    Object.values(e.subs || {}).forEach((st) => {
+    Object.entries(e.subs || {}).forEach(([cod, st]) => {
       if (!Array.isArray(st.prop)) st.prop = [st.p1 || '', st.p2 || ''];
+      if (!st.r) st.r = peldanosDesdeMarcas(cod, st.m || {});
+      delete st.m;
       delete st.p1; delete st.p2; delete st.ejemplo;
       if (st.sinDudas == null) st.sinDudas = false;
     });
@@ -106,7 +111,7 @@
   let estado = nuevoEstado();
 
   function subEstado(cod) {
-    if (!estado.subs[cod]) estado.subs[cod] = { m: {}, acordado: null, notaDif: '', disc: '', prop: [], sinDudas: false, dudas: '' };
+    if (!estado.subs[cod]) estado.subs[cod] = { r: {}, acordado: null, notaDif: '', disc: '', prop: [], sinDudas: false, dudas: '' };
     return estado.subs[cod];
   }
   function guardar() {
@@ -119,6 +124,11 @@
       if (s && typeof s === 'object' && s.id) estado = normalizar(s);
     } catch (e) { /* sin datos */ }
   }
+  const proyTxt = () => {
+    const i = estado.inicio;
+    return [i.proyNombre, [i.proyTipo, i.proyEtapa ? 'etapa: ' + i.proyEtapa.toLowerCase() : ''].filter(Boolean).join(', ')].filter(Boolean).join(' · ') +
+      (i.proyDesc ? ' · ' + i.proyDesc : '');
+  };
   const areaTxt = (v) => v.area === 'Otro' ? (v.areaOtro || 'Otro') : v.area;
   const evTxt = (v, conNombre) => [v.cargo, areaTxt(v), v.anios ? v.anios + ' años' : ''].filter(Boolean).join(' · ') +
     (conNombre && v.nombre && !v.anon ? ' (' + v.nombre + ')' : '');
@@ -132,7 +142,31 @@
     }));
     return out;
   }
-  const marcada = (cod, k) => !!(estado.subs[cod] && estado.subs[cod].m[k]);
+  // Cada componente se responde con un peldaño: el nivel más alto de su evolución que se cumple.
+  // st.r[componente] = n (2..5), 0 = "aún no", sin valor = sin responder.
+  // Una celda "●" del nivel n se cumple si el peldaño elegido es >= n.
+  function marcada(cod, k) {
+    const st = estado.subs[cod];
+    if (!st || !st.r) return false;
+    const [c, n] = k.split('@');
+    return st.r[c] != null && +n <= st.r[c];
+  }
+  const peldanos = (c) => c.niveles.map((x, i) => ({ n: i + 1, t: x.t, e: x.e })).filter((x) => x.e === '●');
+  // Convierte las casillas de versiones anteriores de la app en peldaños
+  function peldanosDesdeMarcas(cod, m) {
+    const x = SUBS.find((y) => y.s.codigo === cod);
+    const r = {};
+    if (!x) return r;
+    x.s.componentes.forEach((c) => {
+      let n = 0;
+      for (const p of peldanos(c)) { if (m[c.codigo + '@' + p.n]) n = p.n; else break; }
+      if (n || peldanos(c).some((p) => m[c.codigo + '@' + p.n])) r[c.codigo] = n;
+    });
+    return r;
+  }
+  // Alcance de cada nivel, según el nombre del nivel en el modelo
+  const ALCANCE = { 1: ['indiv', 'Individual'], 2: ['proy', 'Proyecto'], 3: ['emp', 'Empresa'], 4: ['emp', 'Empresa (se mide)'], 5: ['partes', 'Entre las partes'] };
+  const sinResponder = (s) => s.componentes.filter((c) => peldanos(c).length && (subEstado(s.codigo).r[c.codigo] == null));
   // Celdas "●" del nivel n que no están marcadas
   function faltantes(s, n) {
     return celdasReq(s).filter((r) => r.n === n && !marcada(s.codigo, r.k));
@@ -245,7 +279,8 @@
   document.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.ir)));
 
   /* ================= 1. Inicio ================= */
-  const CAMPOS_ORG = [['f-org', 'org', true], ['f-fecha', 'fecha', true], ['f-tipo', 'tipo', true], ['f-cat', 'cat', true], ['f-facil', 'facil', false]];
+  const CAMPOS_ORG = [['f-org', 'org', true], ['f-fecha', 'fecha', true], ['f-tipo', 'tipo', true], ['f-cat', 'cat', true], ['f-facil', 'facil', false],
+    ['f-proy-nombre', 'proyNombre', true], ['f-proy-tipo', 'proyTipo', true], ['f-proy-etapa', 'proyEtapa', true], ['f-proy-desc', 'proyDesc', false]];
   CAMPOS_ORG.forEach(([id, k]) => $(id).addEventListener('input', () => { estado.inicio[k] = $(id).value.trim(); guardar(); }));
 
   function campoTexto(lbl, tipo, v, k, extra) {
@@ -338,7 +373,7 @@
     sel.innerHTML = '';
     D.atributos.forEach((a) => {
       const g = document.createElement('optgroup');
-      g.label = a.codigo + '. ' + a.nombre_en;
+      g.label = a.codigo + '. ' + a.nombre_en + ' (' + a.subatributos.filter((s) => acordado(s.codigo)).length + '/' + a.subatributos.length + ')';
       a.subatributos.forEach((s) => {
         const o = el('option', '', (acordado(s.codigo) ? '✓ ' : '· ') + subEtq(s));
         o.value = SUBS.findIndex((x) => x.s === s);
@@ -370,55 +405,51 @@
     card.appendChild(h);
     card.appendChild(el('p', 'desc', s.descripcion));
 
-    // Matriz de componentes como lista de verificación
-    card.appendChild(el('h3', '', 'Matriz de componentes'));
-    card.appendChild(el('p', 'leyenda', 'Marquen las prácticas "●" que la organización cumple. "○" se presupone por acumulación (ya se verificó en un nivel anterior) · "·" aún no se exige · "–" sin contenido.'));
-    const wrap = el('div', 'tabla-scroll');
-    const t = el('table', 'matriz');
-    const th = el('thead'), trh = el('tr');
-    trh.appendChild(el('th', '', 'Componente'));
-    NIV.forEach((nv) => trh.appendChild(el('th', nv.n === 1 ? 'n1' : '', 'N' + nv.n)));
-    th.appendChild(trh); t.appendChild(th);
-    const tb = el('tbody');
+    // Matriz de componentes: una escalera de evolución por componente
+    card.appendChild(el('h3', '', 'Componentes: ¿hasta dónde llega cada práctica?'));
+    const ley = el('div', 'leyenda');
+    ley.appendChild(el('p', '', 'En cada componente, elijan el peldaño más alto que la organización cumple. Los peldaños anteriores se dan por cumplidos.'));
+    const chips = el('div', 'chips');
+    [['proy', 'Proyecto' + (estado.inicio.proyNombre ? ': ' + estado.inicio.proyNombre : '')], ['emp', 'Empresa'], ['partes', 'Entre las partes']]
+      .forEach(([k, t]) => chips.appendChild(el('span', 'chip alc-' + k, t)));
+    ley.appendChild(chips);
+    card.appendChild(ley);
+    const lista = el('div', 'comps');
+    lista.id = 'comps';
     s.componentes.forEach((c) => {
-      const tr = el('tr');
-      const td0 = el('td');
-      td0.appendChild(el('span', 'cod', c.codigo + '. '));
-      td0.appendChild(document.createTextNode(c.nombre));
-      tr.appendChild(td0);
-      c.niveles.forEach((x, i) => {
-        const n = i + 1, td = el('td', 'cel');
-        td.dataset.n = 'N' + n;
-        if (x.e === '●') {
-          const k = c.codigo + '@' + n;
-          td.classList.add('req');
-          const lb = el('label');
-          const cb = el('input');
-          cb.type = 'checkbox'; cb.checked = !!st.m[k]; cb.dataset.k = k;
-          cb.setAttribute('aria-label', c.codigo + ' N' + n + (x.t ? ': ' + x.t : ''));
-          cb.addEventListener('change', () => {
-            if (cb.checked) st.m[k] = true; else delete st.m[k];
-            td.classList.toggle('marcada', cb.checked);
-            guardar(); refrescarNivel();
-          });
-          td.classList.toggle('marcada', cb.checked);
-          lb.appendChild(cb);
-          lb.appendChild(el('span', '', x.t || '●'));
-          td.appendChild(lb);
-        } else if (x.e === '○') {
-          td.classList.add('acum');
-          td.title = 'Presupuesto por acumulación';
-          td.appendChild(el('span', 'sim', '○'));
-        } else {
-          td.classList.add('vacia');
-          td.title = x.e === '·' ? 'Aún no se exige' : 'Sin contenido';
-          td.appendChild(el('span', 'sim', x.e === '-' ? '–' : x.e));
-        }
-        tr.appendChild(td);
+      const ps = peldanos(c);
+      if (!ps.length) return;
+      const fila = el('div', 'comp');
+      fila.dataset.c = c.codigo;
+      const nom = el('div', 'comp-nom');
+      nom.appendChild(el('span', 'cod', c.codigo + '. '));
+      nom.appendChild(document.createTextNode(c.nombre));
+      fila.appendChild(nom);
+      const esc = el('div', 'escalera');
+      esc.setAttribute('role', 'radiogroup');
+      esc.setAttribute('aria-label', c.codigo + ' ' + c.nombre);
+      const boton = (n, cls, titulo, texto) => {
+        const b = el('button', 'peld ' + cls);
+        b.type = 'button'; b.dataset.r = n;
+        b.setAttribute('role', 'radio');
+        b.appendChild(el('span', 'pn', titulo));
+        if (texto) b.appendChild(el('span', 'pt', texto));
+        b.addEventListener('click', () => {
+          st.r[c.codigo] = n;
+          guardar(); pintarEscalera(fila, n); refrescarNivel();
+        });
+        esc.appendChild(b);
+      };
+      boton(0, 'cero', 'Aún no', '');
+      ps.forEach((p) => {
+        const [k, t] = ALCANCE[p.n] || ['emp', ''];
+        boton(p.n, 'alc-' + k, 'N' + p.n + ' · ' + t, p.t);
       });
-      tb.appendChild(tr);
+      fila.appendChild(esc);
+      lista.appendChild(fila);
+      pintarEscalera(fila, st.r[c.codigo]);
     });
-    t.appendChild(tb); wrap.appendChild(t); card.appendChild(wrap);
+    card.appendChild(lista);
 
     card.appendChild(el('div', 'sugerido-txt')).id = 'sugerido-txt';
 
@@ -511,6 +542,15 @@
     refrescarInferior();
     guardar();
   }
+  function pintarEscalera(fila, r) {
+    fila.classList.toggle('pendiente', r == null);
+    fila.querySelectorAll('.peld').forEach((b) => {
+      const n = +b.dataset.r;
+      b.classList.toggle('lleno', r != null && n > 0 && n <= r);
+      b.classList.toggle('sel', r === n);
+      b.setAttribute('aria-checked', r === n ? 'true' : 'false');
+    });
+  }
   const propuestos = (st) => (st.prop || []).slice(0, estado.inicio.ev.length).filter(Boolean);
 
   function refrescarInferior() {
@@ -531,8 +571,10 @@
     sp.appendChild(el('b', '', nivelNombre(sug)));
     sp.appendChild(el('br'));
     sp.appendChild(el('span', 'hint', sug < NMAX
-      ? 'Es el nivel que corresponde a los componentes marcados. Para N' + (sug + 1) + ' faltan ' + faltantes(s, sug + 1).length + ' componente(s).'
-      : 'Es el nivel que corresponde a los componentes marcados.'));
+      ? 'Es el nivel que corresponde a los peldaños elegidos. Para N' + (sug + 1) + ' faltan ' + faltantes(s, sug + 1).length + ' componente(s).'
+      : 'Es el nivel que corresponde a los peldaños elegidos.'));
+    const pend = sinResponder(s).length;
+    if (pend) sp.appendChild(el('span', 'pend-txt', ' · ' + pend + ' componente(s) sin responder.'));
     document.querySelectorAll('#tarjetas .nivel').forEach((b) => {
       const n = +b.dataset.n;
       b.setAttribute('aria-pressed', st.acordado === n ? 'true' : 'false');
@@ -552,8 +594,21 @@
     actualizarProgreso();
   }
 
-  $('btn-ant').addEventListener('click', () => { if (estado.paso > 0) { estado.paso--; renderEval(); window.scrollTo(0, 0); } });
+  $('btn-ant').addEventListener('click', () => { if (estado.paso > 0) { avisado = null; $('eval-msg').textContent = ''; estado.paso--; renderEval(); window.scrollTo(0, 0); } });
+  let avisado = null;
   $('btn-sig').addEventListener('click', () => {
+    const s = SUBS[estado.paso].s;
+    const pend = sinResponder(s);
+    if (pend.length && avisado !== s.codigo) {
+      avisado = s.codigo;
+      $('eval-msg').textContent = (pend.length === 1 ? 'Queda 1 componente sin responder (resaltado): ' : 'Quedan ' + pend.length + ' componentes sin responder (resaltados): ') + pend.map((c) => c.codigo).join(', ') +
+        '. Pulse "Siguiente" otra vez para continuar de todos modos.';
+      document.querySelectorAll('#comps .comp.pendiente').forEach((f) => f.classList.add('aviso-pend'));
+      const f = document.querySelector('#comps .comp.pendiente'); if (f) f.scrollIntoView({ block: 'center' });
+      return;
+    }
+    avisado = null;
+    $('eval-msg').textContent = '';
     if (estado.paso < TOTAL - 1) { estado.paso++; renderEval(); window.scrollTo(0, 0); } else mostrar('prior');
   });
 
@@ -650,9 +705,10 @@
         datasets: [{
           label: 'Nivel acordado',
           data: subs.map((s) => acordado(s.codigo) || 0),
-          borderColor: '#b22222', borderDash: [5, 4], borderWidth: 2,
-          backgroundColor: 'rgba(178,34,34,0.04)', fill: true,
-          pointBackgroundColor: '#b22222', pointRadius: 3
+          borderColor: '#a3243b', borderDash: [5, 4], borderWidth: 2,
+          backgroundColor: 'rgba(163,36,59,0.05)', fill: true,
+          pointBackgroundColor: '#a3243b', pointBorderColor: '#fff', pointBorderWidth: 1.5,
+          pointRadius: 6, pointHoverRadius: 9, pointHitRadius: 14
         }]
       },
       options: {
@@ -716,7 +772,8 @@
     cab.innerHTML = '';
     cab.appendChild(el('h2', '', 'Resultados'));
     const meta = el('div', 'meta');
-    const filas = [['Organización', i.org], ['Tipo / categoría', [i.tipo, i.cat].filter(Boolean).join(' · ')], ['Fecha', i.fecha]];
+    const filas = [['Organización', i.org], ['Tipo / categoría', [i.tipo, i.cat].filter(Boolean).join(' · ')], ['Fecha', i.fecha],
+      ['Proyecto de referencia', proyTxt()]];
     i.ev.forEach((v, k) => filas.push(['Evaluador ' + (k + 1), evTxt(v, true)]));
     filas.push(['Facilitador(a)', i.facil], ['Tiempo total', duracionTxt(duracionMin())]);
     filas.forEach(([k, v]) => { const d = el('div'); d.appendChild(el('b', '', k)); d.appendChild(document.createTextNode(v || '—')); meta.appendChild(d); });
@@ -757,17 +814,36 @@
       dx.appendChild(fila);
     }
 
-    // Tabla de niveles
+    // Casos a revisar: solo los subatributos con alguna observación
     const tn = $('tabla-niveles');
     tn.innerHTML = '';
-    filaTabla(tn, ['Subatributo', 'Nivel acordado', 'Nivel sugerido', 'Discrepancia'], true);
-    SUBS.forEach((x) => {
-      const st = subEstado(x.s.codigo), ac = st.acordado;
-      filaTabla(tn, [subEtqLarga(x.s), ac ? 'N' + ac : '—', 'N' + sugerido(x.s), discTxt(st)], false, [1, 2]);
-    });
+    const casos = casosRevisar();
+    $('casos-vacio').hidden = casos.length > 0;
+    tn.hidden = !casos.length;
+    if (casos.length) {
+      filaTabla(tn, ['Subatributo', 'Nivel acordado', 'Nivel sugerido', 'Discrepancia', 'Observaciones'], true);
+      casos.forEach(({ s, st, motivos }) => {
+        filaTabla(tn, [subEtqLarga(s), st.acordado ? 'N' + st.acordado : '—', 'N' + sugerido(s), discTxt(st), listaNodo(motivos, '')], false, [1, 2]);
+      });
+    }
 
     renderRuta();
     renderVerificacion();
+  }
+  function casosRevisar() {
+    const out = [];
+    SUBS.forEach(({ s }) => {
+      const st = subEstado(s.codigo), sug = sugerido(s), m = [];
+      if (!st.acordado) m.push('Sin nivel acordado');
+      else if (st.acordado !== sug) m.push('El acordado difiere del sugerido' + (st.notaDif.trim() ? ': ' + st.notaDif.trim() : ''));
+      if (st.disc === 'si') m.push('Hubo discrepancia entre los evaluadores');
+      if (!st.disc) m.push('Falta indicar si hubo discrepancia');
+      if (!st.sinDudas && (st.dudas || '').trim()) m.push('Duda: ' + st.dudas.trim());
+      const pend = sinResponder(s);
+      if (pend.length) m.push('Componentes sin responder: ' + pend.map((c) => c.codigo).join(', '));
+      if (m.length) out.push({ s, st, motivos: m });
+    });
+    return out;
   }
   function discTxt(st) {
     if (st.disc === 'si') {
@@ -799,15 +875,18 @@
     const { ruta, incons, max } = hojaDeRuta();
     const cont = $('ruta');
     cont.innerHTML = '';
-    ruta.forEach((it) => {
+    if (ruta.length) cont.appendChild(el('div', 'hito salida', 'Salida: situación actual'));
+    ruta.forEach((it, j) => {
+      const est = el('div', 'estacion ' + (j % 2 ? 'der' : 'izq') + (it.prior ? ' prio' : ''));
+      est.appendChild(el('div', 'nodo', String(it.prioridad)));
       const d = el('div', 'ruta-item');
+      est.appendChild(d);
       const cab = el('div', 'ruta-cab');
-      cab.appendChild(el('span', 'ruta-num', String(it.prioridad)));
       const sub = el('span', 'ruta-sub', subEtq(it.s) + ' ');
       sub.appendChild(el('small', '', '(' + it.s.nombre_es + ')'));
       cab.appendChild(sub);
       cab.appendChild(el('span', 'ruta-salto', 'N' + it.n + ' → N' + it.siguiente + (it.fuente === 'sugerido' ? ' (sugerido; falta acordar)' : '')));
-      cab.appendChild(el('span', 'ruta-prior' + (it.prior ? ' si' : ''), 'Prioritario para la empresa: ' + (it.prior ? 'Sí' : 'No')));
+      cab.appendChild(el('span', 'ruta-prior' + (it.prior ? ' si' : ''), it.prior ? '★ Prioritario para la empresa' : 'Prioritario para la empresa: No'));
       d.appendChild(cab);
       const cu = el('div', 'ruta-cuerpo');
       const c1 = el('div');
@@ -818,8 +897,9 @@
       c2.appendChild(listaNodo(it.faltan.map(compTxt), VACIO_FALTAN));
       cu.appendChild(c1); cu.appendChild(c2);
       d.appendChild(cu);
-      cont.appendChild(d);
+      cont.appendChild(est);
     });
+    if (ruta.length) cont.appendChild(el('div', 'hito meta', 'Meta: N' + NMAX + ' en todos los subatributos'));
     const di = $('ruta-incons');
     di.innerHTML = '';
     if (incons.length) {
@@ -903,7 +983,7 @@
     doc.text(doc.splitTextToSize(pdfTxt(i.org || 'Organización'), AN), M, 100);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
     y = 112;
-    [['Fecha de la evaluación', i.fecha], ['Tipo', i.tipo], ['Categoría', i.cat],
+    [['Fecha de la evaluación', i.fecha], ['Tipo', i.tipo], ['Categoría', i.cat], ['Proyecto de referencia', proyTxt()],
      ['Evaluadores', i.ev.map((v) => [v.cargo, areaTxt(v)].filter(Boolean).join(', ')).filter(Boolean).join('; ')],
      ['Facilitador(a)', i.facil], ['Modelo', D.meta.nombre + ' - ' + D.meta.version]
     ].forEach(([k, v]) => {
@@ -963,7 +1043,7 @@
       body: g.map((grp, j) => ['N' + grp.n + (g.length > 1 && j === 0 ? '\nMás maduros' : '') + (g.length > 1 && j === g.length - 1 ? '\nMenos maduros' : ''),
         pdfTxt(grp.subs.map((s) => subEtqLarga(s)).join('\n'))]),
       styles: { fontSize: 8, cellPadding: 1.6, valign: 'top' },
-      headStyles: { fillColor: [31, 78, 121] },
+      headStyles: { fillColor: [122, 30, 44] },
       columnStyles: { 0: { cellWidth: 26, fontStyle: 'bold' } }
     });
     doc.addPage(); y = 22;
@@ -976,7 +1056,7 @@
         return [pdfTxt(subEtqLarga(x.s)), st.acordado ? 'N' + st.acordado : '-', 'N' + sugerido(x.s), pdfTxt(discTxt(st))];
       }),
       styles: { fontSize: 8, cellPadding: 1.6, valign: 'top' },
-      headStyles: { fillColor: [31, 78, 121] },
+      headStyles: { fillColor: [122, 30, 44] },
       columnStyles: { 1: { cellWidth: 24, halign: 'center' }, 2: { cellWidth: 24, halign: 'center' }, 3: { cellWidth: 34 } }
     });
 
@@ -1045,6 +1125,20 @@
     try { generarPDF(); } catch (e) { console.error(e); mensaje('Error al generar el PDF: ' + e.message); }
   });
 
+  /* ================= Filas compartidas por el Excel y la base de datos ================= */
+  const CAB_COMP = ['Subatributo', 'Componente', 'Nombre del componente', 'Peldaño elegido', 'Texto del peldaño', 'Alcance'];
+  function filasComponentes() {
+    const out = [];
+    SUBS.forEach(({ s }) => s.componentes.forEach((c) => {
+      const ps = peldanos(c);
+      if (!ps.length) return;
+      const r = subEstado(s.codigo).r[c.codigo];
+      const p = ps.find((x) => x.n === r);
+      out.push([s.codigo, c.codigo, c.nombre, r == null ? 'Sin responder' : r === 0 ? 'Aún no' : 'N' + r, p ? p.t : '', p ? ALCANCE[p.n][1] : '']);
+    }));
+    return out;
+  }
+
   /* ================= Excel interno ================= */
   function generarExcel(anon) {
     if (!window.XLSX) { mensaje('No se pudo cargar la librería de Excel (revise la conexión a internet).'); return; }
@@ -1070,6 +1164,7 @@
       ['Fecha del modelo', estado.modelo.fecha],
       ['Organización', anon ? 'Organización X' : i.org],
       ['Tipo', i.tipo], ['Categoría', i.cat], ['Fecha de la evaluación', i.fecha],
+      ['Proyecto de referencia', i.proyNombre], ['Tipo de proyecto', i.proyTipo], ['Etapa del proyecto', i.proyEtapa], ['Descripción del proyecto', i.proyDesc],
       ['Número de evaluadores', i.ev.length],
       ...filasEv,
       ['Facilitador(a)', i.facil],
@@ -1097,9 +1192,7 @@
       })
     ], [8, 24, 36, 36, 10, 10, 30, 11, ...Array(nEv).fill(12), 40, 10]);
 
-    const comp = [['Subatributo', 'Componente', 'Nombre del componente', 'Nivel', 'Texto de la celda', 'Marcado']];
-    SUBS.forEach((x) => celdasReq(x.s).forEach((r) => comp.push([x.s.codigo, r.c.codigo, r.c.nombre, 'N' + r.n, r.t, marcada(x.s.codigo, r.k) ? 'Sí' : 'No'])));
-    hoja('Componentes marcados', comp, [11, 11, 50, 7, 50, 9]);
+    hoja('Componentes', [CAB_COMP, ...filasComponentes()], [11, 11, 50, 14, 50, 18]);
 
     const { ruta, incons, max } = hojaDeRuta();
     const hr = [['Prioridad', 'Subatributo', 'Nivel actual', 'Siguiente nivel', 'Qué exige (descriptor del siguiente nivel)', 'Componentes faltantes', 'Prioritario para la empresa']];
@@ -1165,10 +1258,35 @@
   function enviarBaseDatos() {
     const url = (CFG.urlBaseDatos || '').trim();
     if (!url) return;
+    const i = estado.inicio, id = estado.id;
+    const nombreEv = (v) => v.anon ? '' : v.nombre;
+    const evaluaciones = {
+      cab: ['ID', 'Enviado', 'Versión del modelo', 'Organización', 'Tipo', 'Categoría', 'Fecha de la evaluación',
+        'Proyecto', 'Tipo de proyecto', 'Etapa', 'Descripción del proyecto', 'N.º de evaluadores', 'Evaluadores', 'Facilitador(a)',
+        'Hora de inicio', 'Hora de fin', 'Tiempo total (min)', 'Prioridades (modo)', 'Prioritarios',
+        ...SUBS.map((x) => 'Nivel ' + x.s.codigo)],
+      filas: [[id, new Date().toISOString(), estado.modelo.version, i.org, i.tipo, i.cat, i.fecha,
+        i.proyNombre, i.proyTipo, i.proyEtapa, i.proyDesc, i.ev.length,
+        i.ev.map((v, k) => (k + 1) + ') ' + evTxt(v, false) + (nombreEv(v) ? ' - ' + nombreEv(v) : '')).join(' | '), i.facil,
+        estado.horaInicio, estado.horaFin, duracionMin(), modoPriorTxt(), listaPrior().join(', '),
+        ...SUBS.map((x) => acordado(x.s.codigo) || '')]]
+    };
+    const niveles = {
+      cab: ['ID', 'Organización', 'Código', 'Atributo', 'Subatributo', 'Nivel acordado', 'Nivel sugerido', 'Nota (acordado ≠ sugerido)',
+        'Discrepancia', 'Niveles propuestos', 'Dudas o dificultades', 'Prioritario'],
+      filas: SUBS.map(({ a, s }) => {
+        const st = subEstado(s.codigo);
+        return [id, i.org, s.codigo, a.nombre_en, s.nombre_en, st.acordado || '', sugerido(s), st.notaDif,
+          st.disc === 'si' ? 'Sí' : st.disc === 'no' ? 'No' : '', st.disc === 'si' ? propuestos(st).map((v) => 'N' + v).join(' / ') : '',
+          dudasTxt(st), esPrior(s.codigo) ? 'Sí' : 'No'];
+      })
+    };
+    const componentes = { cab: ['ID', ...CAB_COMP], filas: filasComponentes().map((f) => [id, ...f]) };
+    const cierre = { cab: ['ID', 'Pregunta', 'Respuesta'], filas: PREGUNTAS.map((p) => [id, p.t, respuesta(p.k)]) };
     const cuerpo = JSON.stringify({
-      evaluacion: estado,
-      niveles: SUBS.map((x) => ({ codigo: x.s.codigo, acordado: acordado(x.s.codigo), sugerido: sugerido(x.s) })),
-      prioritarios: listaPrior()
+      clave: CFG.clave || '', id, organizacion: i.org,
+      hojas: { Evaluaciones: evaluaciones, Niveles: niveles, Componentes: componentes, Cierre: cierre },
+      evaluacion: estado
     });
     fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: cuerpo })
       .then(() => { estado.envio = new Date().toISOString(); guardar(); })

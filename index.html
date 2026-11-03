@@ -58,6 +58,38 @@
             </label>
           </div>
         </fieldset>
+        <fieldset>
+          <legend>Proyecto de referencia</legend>
+          <p class="hint">Las prácticas de nivel N2 se verifican en este proyecto; las de N3 en adelante, en la empresa.</p>
+          <div class="grid2">
+            <label>Nombre del proyecto
+              <input type="text" id="f-proy-nombre" required>
+            </label>
+            <label>Tipo de proyecto
+              <select id="f-proy-tipo" required>
+                <option value="">Seleccione…</option>
+                <option>Vivienda multifamiliar</option>
+                <option>Oficinas</option>
+                <option>Comercial</option>
+                <option>Industrial</option>
+                <option>Infraestructura</option>
+                <option>Educativo / salud</option>
+                <option>Otro</option>
+              </select>
+            </label>
+            <label>Etapa
+              <select id="f-proy-etapa" required>
+                <option value="">Seleccione…</option>
+                <option>Diseño</option>
+                <option>Construcción</option>
+                <option>Entregado</option>
+              </select>
+            </label>
+            <label>Descripción breve <span class="hint">(opcional)</span>
+              <input type="text" id="f-proy-desc" maxlength="160" placeholder="Ej.: edificio de 18 pisos en Miraflores">
+            </label>
+          </div>
+        </fieldset>
         <div id="evaluadores"></div>
         <button class="btn" type="button" id="btn-agregar-ev">+ Agregar evaluador</button>
         <fieldset class="mt">
@@ -85,6 +117,7 @@
       El nivel se acuerda por <strong>consenso de los evaluadores</strong>.
     </div>
     <div id="eval-sub"></div>
+    <p id="eval-msg" class="msg" role="alert"></p>
     <div class="nav">
       <button class="btn" id="btn-ant" type="button">← Anterior</button>
       <button class="btn primary" id="btn-sig" type="button">Siguiente →</button>
@@ -155,14 +188,16 @@
     </div>
 
     <div class="card">
-      <h2>Tabla de niveles</h2>
+      <h2>Casos a revisar</h2>
+      <p class="hint">Solo los subatributos con alguna observación: nivel distinto al sugerido, discrepancia, dudas o datos pendientes.</p>
+      <p id="casos-vacio" class="ok-txt" hidden>Sin observaciones: todos los subatributos tienen nivel acordado igual al sugerido, sin discrepancias ni dudas.</p>
       <div class="tabla-scroll"><table id="tabla-niveles" class="tabla"></table></div>
     </div>
 
     <div class="card">
       <h2>Hoja de ruta</h2>
       <p class="hint">Siguiente nivel de cada subatributo, de menor a mayor nivel actual (empates en el orden del modelo). Sin plazos, costos ni responsables.</p>
-      <div id="ruta"></div>
+      <div id="ruta" class="camino"></div>
       <div id="ruta-incons"></div>
       <div id="ruta-max"></div>
     </div>

@@ -44,10 +44,14 @@ El script muestra los conteos y avisa si falta un descriptor, si una celda no se
 ## Cómo cambiar la versión del modelo
 En `data.js`, cambia `meta.version` (por ejemplo `"BIL-Lima v2"`) y `meta.fecha`, o usa `--version` y `--fecha` del script. La versión aparece en la cabecera, en el pie del PDF y en el Excel. Al importar un JSON hecho con otra versión, la app avisa antes de cargarlo.
 
+## Cómo se evalúa cada subatributo
+- **Proyecto de referencia:** en el Inicio se registra un proyecto. Las prácticas de N2 se verifican en ese proyecto; las de N3 y N4, en la empresa; las de N5, entre las partes. Los colores de la matriz indican ese alcance.
+- **Escalera de evolución:** en cada componente se elige el peldaño más alto que se cumple (o "Aún no"); los peldaños anteriores se dan por cumplidos. Con eso se calcula el **nivel sugerido** (regla acumulativa), que se resalta en dorado. Los evaluadores eligen el **nivel acordado**.
+
 ## Otras opciones que se editan en `app.js`
 - **Áreas de los evaluadores:** lista `AREAS` al inicio de `app.js` (la opción "Otro" permite escribir el área).
 - **Preguntas de cierre:** lista `PREGUNTAS` (texto y respuesta rápida: "Ninguno", "Ninguna", "Nada").
 - **Ayuda en los diagramas:** al pasar el cursor sobre un subatributo se muestra su descripción. Si en `data.js` se agrega a un subatributo el campo `"resumen": "…"`, se muestra ese texto breve en su lugar.
 
-## Conectar Google Sheets (después)
-Pon en `config.js` la URL de la aplicación web de Google Apps Script en `urlBaseDatos`. La evaluación se envía automáticamente al pulsar **Finalizar** (POST, JSON en texto plano), sin botón visible.
+## Base de datos en Google Sheets
+Cada evaluación se envía automáticamente al pulsar **Finalizar** a un Google Sheets de tu Drive (hojas Evaluaciones, Niveles, Componentes y Cierre, más una copia JSON en la carpeta "BIL-Lima respaldos"). Los pasos para crearlo están en `herramientas/google_sheets/LEEME.md`; luego se pega la URL en `config.js` (`urlBaseDatos`). La `clave` de `config.js` debe coincidir con `CLAVE` en `Code.gs`.
