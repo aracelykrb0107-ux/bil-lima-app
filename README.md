@@ -44,9 +44,12 @@ El script muestra los conteos y avisa si falta un descriptor, si una celda no se
 ## Cómo cambiar la versión del modelo
 En `data.js`, cambia `meta.version` (por ejemplo `"BIL-Lima v2"`) y `meta.fecha`, o usa `--version` y `--fecha` del script. La versión aparece en la cabecera, en el pie del PDF y en el Excel. Al importar un JSON hecho con otra versión, la app avisa antes de cargarlo.
 
+## Página "El modelo"
+Es la portada de la app: presenta la estructura del modelo (BIL-Lima al centro y los atributos alrededor; al pulsar uno se ven sus subatributos con su descripción), los cinco niveles, las instrucciones de aplicación y las características del modelo. El botón **Ver un ejemplo de resultados** carga una evaluación ficticia para mostrar el reporte; esa evaluación no se envía a la base de datos y se sale de ella con **Salir del ejemplo**.
+
 ## Cómo se evalúa cada subatributo
 - **Proyecto de referencia:** en el Inicio se registra un proyecto. Las prácticas de N2 se verifican en ese proyecto; las de N3 y N4, en la empresa; las de N5, entre las partes. Los colores de la matriz indican ese alcance.
-- **Escalera de evolución:** en cada componente se elige el peldaño más alto que se cumple (o "Aún no"); los peldaños anteriores se dan por cumplidos. Con eso se calcula el **nivel sugerido** (regla acumulativa), que se resalta en dorado. Los evaluadores eligen el **nivel acordado**.
+- **Matriz de componentes:** en cada fila se marca la práctica más alta que se cumple (o "Aún no"); las anteriores de la fila se marcan solas. Con eso se calcula el **nivel sugerido** (regla acumulativa), que se resalta en dorado. Los evaluadores eligen el **nivel acordado**.
 
 ## Otras opciones que se editan en `app.js`
 - **Áreas de los evaluadores:** lista `AREAS` al inicio de `app.js` (la opción "Otro" permite escribir el área).
