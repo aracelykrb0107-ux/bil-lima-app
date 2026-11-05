@@ -21,6 +21,7 @@
     </div>
   </div>
   <nav class="wrap pasos" id="pasos" aria-label="Etapas">
+    <button type="button" data-vista="modelo">El modelo</button>
     <button type="button" data-vista="inicio">1. Inicio</button>
     <button type="button" data-vista="eval">2. Evaluación</button>
     <button type="button" data-vista="prior">3. Prioridades</button>
@@ -31,14 +32,57 @@
 
 <main class="wrap">
   <p id="msg-global" class="msg" role="status"></p>
+  <div id="banner-demo" class="banner-demo" hidden>
+    <span><strong>Ejemplo ficticio.</strong> Los datos de esta evaluación son inventados y no se guardan en la base de datos.</span>
+    <button class="btn" type="button" id="btn-salir-demo">Salir del ejemplo</button>
+  </div>
 
-  <!-- 1. Inicio -->
-  <section id="vista-inicio" class="vista">
+  <!-- 0. El modelo -->
+  <section id="vista-modelo" class="vista">
     <div class="hero">
       <p class="hero-pre">Universidad Nacional de Ingeniería · Facultad de Ingeniería Civil</p>
-      <h2>Evaluación de madurez BIL-Lima</h2>
-      <p>Integración de BIM, IPD y Lean Construction en empresas constructoras de Lima Metropolitana.</p>
+      <h2>Modelo de madurez BIL-Lima</h2>
+      <p>Autoevaluación de la integración de BIM, IPD y Lean Construction en empresas constructoras de Lima Metropolitana.</p>
+      <div class="hero-datos" id="hero-datos"></div>
+      <div class="hero-acc">
+        <button class="btn dorado" type="button" data-ir="inicio">Comenzar la evaluación →</button>
+        <button class="btn claro" type="button" id="btn-demo">Ver un ejemplo de resultados</button>
+      </div>
     </div>
+
+    <div class="card">
+      <h2>Estructura del modelo</h2>
+      <p class="hint">Pulse un atributo para ver sus subatributos y lo que evalúa cada uno.</p>
+      <div class="estructura">
+        <div class="rueda" id="rueda"></div>
+        <div class="rueda-panel" id="rueda-panel"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Los cinco niveles de madurez</h2>
+      <p class="hint">Cada nivel presupone todo lo de los niveles anteriores. El alcance indica dónde ocurre la práctica.</p>
+      <div class="escalones" id="escalones"></div>
+    </div>
+
+    <div class="card">
+      <h2>Cómo aplicar el modelo</h2>
+      <ol class="pasos-guia" id="pasos-guia"></ol>
+      <div class="regla">
+        <strong>Regla acumulativa.</strong> Un subatributo se ubica en el nivel más alto cuyas prácticas cumple por completo, junto con las de todos los niveles anteriores.
+        Si cumple solo una parte del nivel siguiente, permanece en el nivel inferior.
+      </div>
+    </div>
+
+    <div class="rasgos" id="rasgos"></div>
+
+    <div class="cta-final">
+      <button class="btn primary grande" type="button" data-ir="inicio">Comenzar la evaluación →</button>
+    </div>
+  </section>
+
+  <!-- 1. Inicio -->
+  <section id="vista-inicio" class="vista" hidden>
     <div class="card">
       <h2>Datos de la evaluación</h2>
       <form id="form-inicio" autocomplete="off" novalidate>
@@ -180,6 +224,26 @@
       <label class="chk"><input type="checkbox" id="chk-anon"> Anonimizar</label>
     </div>
     <div class="card" id="res-cabecera"></div>
+
+    <div class="card">
+      <h2>Resumen</h2>
+      <div class="resumen" id="res-resumen"></div>
+      <details class="como-leer">
+        <summary>Cómo leer este reporte</summary>
+        <ul>
+          <li><strong>Nivel acordado:</strong> el que eligieron los evaluadores por consenso; es el que se grafica.</li>
+          <li><strong>Regla acumulativa:</strong> un nivel solo se alcanza si se cumple todo lo de los niveles anteriores.</li>
+          <li><strong>Sin promedios:</strong> los niveles son etapas, por eso se muestra el perfil completo y el rango de cada atributo.</li>
+          <li><strong>Hoja de ruta:</strong> indica el siguiente nivel de cada subatributo, lo que exige y los componentes que faltan.</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>Mapa de niveles</h2>
+      <p class="hint">Cada casilla es un subatributo; el color indica su nivel acordado.</p>
+      <div id="res-mapa" class="mapa"></div>
+    </div>
 
     <div class="card">
       <h2>Perfil de madurez de los subatributos</h2>

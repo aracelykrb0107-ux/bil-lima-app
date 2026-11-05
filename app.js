@@ -15,6 +15,9 @@
   const AREAS = ['Gerencia General', 'Gerencia de Proyectos', 'Operaciones / Producción', 'VDC / BIM',
     'Planeamiento y Control de Proyectos', 'Oficina Técnica', 'Ingeniería / Diseño', 'Calidad',
     'Seguridad y Salud en el Trabajo', 'Logística', 'Comercial', 'Otro'];
+  // Escala de color por nivel (0 = sin nivel)
+  const NIV_COLOR = { 0: '#e9e4dc', 1: '#f4dfe3', 2: '#e3b3bd', 3: '#c56e81', 4: '#97304a', 5: '#5e1220' };
+  const NIV_RGB = { 0: [233, 228, 220], 1: [244, 223, 227], 2: [227, 179, 189], 3: [197, 110, 129], 4: [151, 48, 74], 5: [94, 18, 32] };
   const PREGUNTAS = [
     { k: 'p1', t: '1. ¿Qué descriptores o subatributos les costó interpretar, y por qué?', nada: 'Ninguno' },
     { k: 'p2', t: '2. ¿Qué dificultades tuvieron con la herramienta web?', nada: 'Ninguna' },
@@ -77,7 +80,7 @@
         proyNombre: '', proyTipo: '', proyEtapa: '', proyDesc: ''
       },
       horaInicio: null, horaFin: null, envio: null,
-      vista: 'inicio', paso: 0,
+      vista: 'modelo', paso: 0,
       subs: {},                                 // codigo -> estado del subatributo
       prior: { modo: '', sel: {} },             // modo: 'app' | 'evaluadores'; sel: atributo -> subatributo
       cierre: { p1: '', p1n: false, p2: '', p2n: false, p3: '', p3n: false }
@@ -257,17 +260,21 @@
   }
 
   /* ================= Navegación ================= */
-  const VISTAS = ['inicio', 'eval', 'prior', 'cierre', 'res'];
+  const VISTAS = ['modelo', 'inicio', 'eval', 'prior', 'cierre', 'res'];
+  const LIBRES = ['modelo', 'inicio'];
   function mostrar(v) {
-    if (v !== 'inicio' && !estado.horaInicio) v = 'inicio';
+    if (!VISTAS.includes(v)) v = 'modelo';
+    if (!LIBRES.includes(v) && !estado.horaInicio) v = 'inicio';
     estado.vista = v;
     $('tip').hidden = true;
+    $('banner-demo').hidden = !estado.demo;
     VISTAS.forEach((n) => { $('vista-' + n).hidden = n !== v; });
     document.querySelectorAll('#pasos button').forEach((b) => {
       b.setAttribute('aria-current', b.dataset.vista === v ? 'true' : 'false');
-      b.disabled = b.dataset.vista !== 'inicio' && !estado.horaInicio;
+      b.disabled = !LIBRES.includes(b.dataset.vista) && !estado.horaInicio;
     });
     guardar();
+    if (v === 'modelo') renderModelo();
     if (v === 'inicio') renderInicio();
     if (v === 'eval') renderEval();
     if (v === 'prior') renderPrior();
@@ -277,6 +284,208 @@
   }
   document.querySelectorAll('#pasos button').forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.vista)));
   document.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.ir)));
+
+  /* ================= 0. El modelo ================= */
+  const COLOR_ATTR = ['#7a1e2c', '#a0761a', '#1f4e79', '#2a7d6f', '#5b3a7a'];
+  const NIV_INFO = {
+    1: ['Individual', 'Depende de la iniciativa de las personas; no hay prácticas establecidas.'],
+    2: ['Proyecto', 'Las prácticas se aplican en el proyecto y se repiten en proyectos similares.'],
+    3: ['Organización y proyecto', 'La empresa define y documenta sus prácticas, y cada proyecto las adapta.'],
+    4: ['Toda la organización', 'La empresa mide sus prácticas con métricas y compara los resultados con lo esperado.'],
+    5: ['Entre organizaciones', 'Cliente, proyectista, contratista y proveedores se integran y mejoran de forma continua.']
+  };
+  let attrSel = null;
+  function contarAlcance(s) {
+    const c = { proy: 0, emp: 0, partes: 0 };
+    celdasReq(s).forEach((r) => { const k = (ALCANCE[r.n] || ['emp'])[0]; if (c[k] != null) c[k]++; });
+    return c;
+  }
+  function renderModelo() {
+    const hd = $('hero-datos');
+    hd.innerHTML = '';
+    [D.atributos.length + ' atributos', TOTAL + ' subatributos', NIV.length + ' niveles', 'Libre acceso y sin costo', 'Tiempo estimado: 1,5 a 2 horas']
+      .forEach((t) => hd.appendChild(el('span', 'chip-hero', t)));
+
+    // Rueda: BIL-Lima al centro y los atributos alrededor
+    const rueda = $('rueda');
+    rueda.innerHTML = '';
+    const nA = D.atributos.length;
+    const pos = D.atributos.map((a, k) => {
+      const ang = (-90 + k * 360 / nA) * Math.PI / 180;
+      return { x: 50 + 34 * Math.cos(ang), y: 50 + 34 * Math.sin(ang) };
+    });
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100'); svg.setAttribute('class', 'rueda-lineas'); svg.setAttribute('aria-hidden', 'true');
+    const aro = document.createElementNS(ns, 'circle');
+    aro.setAttribute('cx', 50); aro.setAttribute('cy', 50); aro.setAttribute('r', 34); aro.setAttribute('class', 'aro');
+    svg.appendChild(aro);
+    pos.forEach((p, k) => {
+      const l = document.createElementNS(ns, 'line');
+      l.setAttribute('x1', 50); l.setAttribute('y1', 50); l.setAttribute('x2', p.x); l.setAttribute('y2', p.y);
+      l.setAttribute('class', 'radio' + (attrSel === k ? ' activo' : ''));
+      svg.appendChild(l);
+    });
+    rueda.appendChild(svg);
+    const centro = el('button', 'rueda-centro' + (attrSel == null ? ' activo' : ''));
+    centro.type = 'button';
+    centro.appendChild(el('span', 'rc-t', 'BIL-Lima'));
+    centro.appendChild(el('span', 'rc-s', 'BIM · IPD · Lean'));
+    centro.addEventListener('click', () => { attrSel = null; renderModelo(); });
+    rueda.appendChild(centro);
+    D.atributos.forEach((a, k) => {
+      const b = el('button', 'rueda-attr' + (attrSel === k ? ' activo' : '') + (attrSel != null && attrSel !== k ? ' tenue' : ''));
+      b.type = 'button';
+      b.style.left = pos[k].x + '%'; b.style.top = pos[k].y + '%';
+      b.style.setProperty('--c', COLOR_ATTR[k % COLOR_ATTR.length]);
+      b.setAttribute('aria-pressed', attrSel === k ? 'true' : 'false');
+      b.appendChild(el('span', 'ra-num', a.codigo));
+      b.appendChild(el('span', 'ra-en', a.nombre_en));
+      b.appendChild(el('span', 'ra-n', a.subatributos.length + ' subatributos'));
+      b.addEventListener('click', () => { attrSel = attrSel === k ? null : k; renderModelo(); if (window.innerWidth < 860) $('rueda-panel').scrollIntoView({ block: 'start', behavior: 'smooth' }); });
+      rueda.appendChild(b);
+    });
+
+    // Panel con los subatributos del atributo elegido
+    const pn = $('rueda-panel');
+    pn.innerHTML = '';
+    if (attrSel == null) {
+      pn.appendChild(el('h3', '', 'Cinco atributos, ' + TOTAL + ' subatributos'));
+      pn.appendChild(el('p', '', 'El modelo agrupa las prácticas de BIM, IPD y Lean Construction en cinco atributos. Cada atributo se divide en subatributos, y cada subatributo tiene una matriz de componentes y un descriptor para cada nivel.'));
+      const ul = el('ul', 'lista-attr');
+      D.atributos.forEach((a, k) => {
+        const li = el('li');
+        const b = el('button', 'enlace-attr');
+        b.type = 'button';
+        b.style.setProperty('--c', COLOR_ATTR[k % COLOR_ATTR.length]);
+        b.appendChild(el('span', 'punto'));
+        b.appendChild(el('strong', '', a.codigo + '. ' + a.nombre_en));
+        b.appendChild(el('span', 'hint', ' ' + a.nombre_es + ' · ' + a.subatributos.length + ' subatributos'));
+        b.addEventListener('click', () => { attrSel = k; renderModelo(); });
+        li.appendChild(b); ul.appendChild(li);
+      });
+      pn.appendChild(ul);
+    } else {
+      const a = D.atributos[attrSel];
+      pn.style.setProperty('--c', COLOR_ATTR[attrSel % COLOR_ATTR.length]);
+      const h = el('div', 'panel-cab');
+      h.appendChild(el('span', 'pc-num', a.codigo));
+      const tt = el('div');
+      tt.appendChild(el('h3', '', a.nombre_en));
+      tt.appendChild(el('p', 'hint', a.nombre_es));
+      h.appendChild(tt);
+      pn.appendChild(h);
+      a.subatributos.forEach((s) => {
+        const d = el('details', 'sub-det');
+        const su = el('summary');
+        su.appendChild(el('span', 'cod', s.codigo + ' '));
+        su.appendChild(document.createTextNode(s.nombre_en + ' '));
+        su.appendChild(el('span', 'hint', '(' + s.nombre_es + ')'));
+        d.appendChild(su);
+        d.appendChild(el('p', '', s.descripcion.charAt(0).toUpperCase() + s.descripcion.slice(1)));
+        const c = contarAlcance(s);
+        const nc = s.componentes.filter((x) => peldanos(x).length).length;
+        const al = el('p', 'alcances');
+        al.appendChild(el('span', 'hint', nc + ' componentes · prácticas: '));
+        [['proy', 'proyecto', c.proy], ['emp', 'empresa', c.emp], ['partes', 'entre las partes', c.partes]].forEach(([k, t, n]) => {
+          if (n) al.appendChild(el('span', 'chip alc-' + k, n + ' de ' + t));
+        });
+        d.appendChild(al);
+        pn.appendChild(d);
+      });
+    }
+
+    // Niveles como escalones
+    const es = $('escalones');
+    es.innerHTML = '';
+    NIV.forEach((nv) => {
+      const d = el('div', 'escalon');
+      d.style.setProperty('--h', (36 + nv.n * 14) + 'px');
+      d.style.setProperty('--nc', NIV_COLOR[nv.n]);
+      d.appendChild(el('div', 'es-bloque', 'N' + nv.n));
+      d.appendChild(el('strong', '', nv.nombre));
+      d.appendChild(el('span', 'es-alc', NIV_INFO[nv.n] ? NIV_INFO[nv.n][0] : ''));
+      d.appendChild(el('p', '', NIV_INFO[nv.n] ? NIV_INFO[nv.n][1] : ''));
+      es.appendChild(d);
+    });
+
+    // Instrucciones
+    const pg = $('pasos-guia');
+    pg.innerHTML = '';
+    [
+      ['Reúnan al equipo', 'Entre 2 y 4 evaluadores de áreas complementarias (por ejemplo, gerencia y VDC/BIM), con un(a) facilitador(a). En "Inicio" registren la organización, el proyecto de referencia y a los evaluadores.'],
+      ['Lean cada subatributo', 'La aplicación presenta los ' + TOTAL + ' subatributos uno por uno, con su descripción. Pueden saltar de uno a otro con "Ir a".'],
+      ['Marquen la matriz de componentes', 'En cada fila marquen la práctica más alta que cumple la empresa; las anteriores se marcan solas. Si no existe, pulsen "Aún no". Los colores indican si la práctica ocurre en el proyecto (N2), en la empresa (N3 y N4) o entre las partes (N5).'],
+      ['Acuerden el nivel', 'La matriz sugiere un nivel (en dorado) según la regla acumulativa. Lean los descriptores y hagan clic en el nivel que acuerdan por consenso. Si no hay acuerdo, se asigna el nivel inferior y se registra la discrepancia.'],
+      ['Definan las prioridades', 'Elijan un subatributo prioritario por atributo, o acepten la propuesta de la aplicación (el de menor nivel en cada atributo).'],
+      ['Revisen los resultados', 'Obtendrán el perfil de madurez, el mapa de niveles, los casos a revisar y la hoja de ruta con el siguiente nivel de cada subatributo. Descarguen el reporte en PDF.']
+    ].forEach(([t, d], k) => {
+      const li = el('li');
+      li.appendChild(el('span', 'pg-num', String(k + 1)));
+      const tx = el('div');
+      tx.appendChild(el('strong', '', t));
+      tx.appendChild(el('p', '', d));
+      li.appendChild(tx);
+      pg.appendChild(li);
+    });
+
+    // Características del modelo
+    const ra = $('rasgos');
+    ra.innerHTML = '';
+    [
+      ['◎', 'Libre acceso', 'Se usa desde el navegador, sin instalar nada, sin costo y sin necesidad de registrarse.'],
+      ['▦', 'Proyecto, procesos y organización', 'Evalúa prácticas en el proyecto, en la empresa y entre las partes, con aspectos técnicos y organizacionales.'],
+      ['⇄', 'Adaptable', 'Aplicable a contratistas, diseñadores y consultores, en proyectos en diseño, construcción o entregados.'],
+      ['◈', 'Reporte claro', 'Perfil en diagramas de araña, mapa de niveles y hoja de ruta, descargables en PDF.']
+    ].forEach(([ic, t, d]) => {
+      const c = el('div', 'rasgo');
+      c.appendChild(el('span', 'rasgo-ic', ic));
+      c.appendChild(el('strong', '', t));
+      c.appendChild(el('p', '', d));
+      ra.appendChild(c);
+    });
+  }
+
+  /* ================= Ejemplo ficticio ================= */
+  const KEY_ANTES = KEY + '-antes';
+  function cargarEjemplo() {
+    try { if (!estado.demo) localStorage.setItem(KEY_ANTES, JSON.stringify(estado)); } catch (e) { /* sin almacenamiento */ }
+    const e = nuevoEstado();
+    e.demo = true;
+    Object.assign(e.inicio, {
+      org: 'Constructora Ejemplo S.A.C. (ficticia)', tipo: 'Contratista', cat: 'Gran empresa',
+      proyNombre: 'Edificio Ejemplo', proyTipo: 'Vivienda multifamiliar', proyEtapa: 'Construcción', proyDesc: 'Proyecto ficticio de 15 pisos'
+    });
+    e.inicio.ev = [Object.assign(evVacio(), { cargo: 'Gerente General', area: 'Gerencia General', anios: '22' }),
+      Object.assign(evVacio(), { cargo: 'Jefe de VDC / BIM', area: 'VDC / BIM', anios: '9' })];
+    const t = Date.now();
+    e.horaInicio = new Date(t - 105 * 60000).toISOString(); e.horaFin = new Date(t).toISOString();
+    e.prior = { modo: 'app', sel: {} };
+    e.cierre = { p1: '', p1n: true, p2: '', p2n: true, p3: '', p3n: true };
+    estado = e;
+    const L = [2, 3, 2, 1, 3, 2, 2, 3, 2, 4, 2, 3, 2, 3, 2, 1, 2, 2, 2, 3, 1];
+    SUBS.forEach(({ s }, i) => {
+      const st = subEstado(s.codigo);
+      s.componentes.forEach((c) => {
+        const ps = peldanos(c).filter((p) => p.n <= (L[i] || 1));
+        if (peldanos(c).length) st.r[c.codigo] = ps.length ? ps[ps.length - 1].n : 0;
+      });
+      st.acordado = sugerido(s); st.disc = 'no'; st.sinDudas = true;
+    });
+    const d1 = subEstado(SUBS[1].s.codigo);
+    d1.sinDudas = false; d1.dudas = 'Duda de ejemplo: no queda claro si el estudio de mercado cuenta como representación del cliente.';
+    const d4 = subEstado(SUBS[4].s.codigo);
+    d4.disc = 'si'; d4.prop = [d4.acordado, Math.min(NMAX, d4.acordado + 1)];
+    mostrar('res');
+  }
+  function salirEjemplo() {
+    let previo = null;
+    try { previo = JSON.parse(localStorage.getItem(KEY_ANTES)); localStorage.removeItem(KEY_ANTES); } catch (e) { /* sin almacenamiento */ }
+    estado = previo && previo.id ? normalizar(previo) : nuevoEstado();
+    mostrar(estado.horaInicio ? (estado.vista === 'res' && !estado.horaFin ? 'eval' : estado.vista) : 'modelo');
+  }
+  $('btn-demo').addEventListener('click', cargarEjemplo);
+  $('btn-salir-demo').addEventListener('click', salirEjemplo);
 
   /* ================= 1. Inicio ================= */
   const CAMPOS_ORG = [['f-org', 'org', true], ['f-fecha', 'fecha', true], ['f-tipo', 'tipo', true], ['f-cat', 'cat', true], ['f-facil', 'facil', false],
@@ -815,6 +1024,8 @@
     filas.push(['Facilitador(a)', i.facil], ['Tiempo total', duracionTxt(duracionMin())]);
     filas.forEach(([k, v]) => { const d = el('div'); d.appendChild(el('b', '', k)); d.appendChild(document.createTextNode(v || '—')); meta.appendChild(d); });
     cab.appendChild(meta);
+    renderResumen();
+    renderMapa();
 
     charts.push(radar($('chart-general'), SUBS.map((x) => x.s), { ancho: 22, fuente: 10 }));
 
@@ -866,6 +1077,70 @@
 
     renderRuta();
     renderVerificacion();
+  }
+  function datosResumen() {
+    const cnt = [0, 0, 0, 0, 0, 0];
+    SUBS.forEach(({ s }) => { cnt[acordado(s.codigo) || 0]++; });
+    let cumplidas = 0, total = 0;
+    SUBS.forEach(({ s }) => celdasReq(s).forEach((r) => { total++; if (marcada(s.codigo, r.k)) cumplidas++; }));
+    const v = SUBS.map(({ s }) => acordado(s.codigo)).filter(Boolean);
+    const ex = gruposPorNivel().g;
+    return {
+      cnt, cumplidas, total,
+      rango: v.length ? (Math.min(...v) === Math.max(...v) ? 'N' + v[0] : 'N' + Math.min(...v) + ' a N' + Math.max(...v)) : '—',
+      mas: ex.length ? ex[0] : null,
+      ruta: hojaDeRuta().ruta.length
+    };
+  }
+  function renderResumen() {
+    const r = datosResumen(), cont = $('res-resumen');
+    cont.innerHTML = '';
+    const dist = el('div', 'dist');
+    for (let n = 1; n <= NMAX; n++) {
+      if (!r.cnt[n]) continue;
+      const seg = el('div', 'dist-seg' + (n >= 3 ? ' osc' : ''), 'N' + n + ' · ' + r.cnt[n]);
+      seg.style.flexGrow = r.cnt[n]; seg.style.background = NIV_COLOR[n];
+      seg.title = r.cnt[n] + ' subatributo(s) en N' + n;
+      dist.appendChild(seg);
+    }
+    if (r.cnt[0]) { const seg = el('div', 'dist-seg', 'Sin nivel · ' + r.cnt[0]); seg.style.flexGrow = r.cnt[0]; seg.style.background = NIV_COLOR[0]; dist.appendChild(seg); }
+    cont.appendChild(el('p', 'res-lbl', 'Subatributos por nivel acordado'));
+    cont.appendChild(dist);
+    const kp = el('div', 'kpis');
+    [['Rango del perfil', r.rango], ['Prácticas cumplidas', r.cumplidas + ' de ' + r.total],
+     ['Más maduros', r.mas ? 'N' + r.mas.n + ': ' + r.mas.subs.map((s) => s.codigo).join(', ') : '—'],
+     ['Prioritarios', listaPrior().join(', ') || 'Sin definir'],
+     ['Hoja de ruta', r.ruta + ' subatributos con siguiente nivel']
+    ].forEach(([k, v]) => { const d = el('div', 'kpi'); d.appendChild(el('span', 'kpi-k', k)); d.appendChild(el('span', 'kpi-v', v)); kp.appendChild(d); });
+    cont.appendChild(kp);
+  }
+  function renderMapa() {
+    const cont = $('res-mapa');
+    cont.innerHTML = '';
+    D.atributos.forEach((a, k) => {
+      const fila = el('div', 'mapa-fila');
+      const et = el('div', 'mapa-attr');
+      et.style.setProperty('--c', COLOR_ATTR[k % COLOR_ATTR.length]);
+      et.appendChild(el('strong', '', a.nombre_en));
+      et.appendChild(el('span', 'hint', rangoAtributo(a)));
+      fila.appendChild(et);
+      const cel = el('div', 'mapa-celdas');
+      a.subatributos.forEach((s) => {
+        const n = acordado(s.codigo) || 0;
+        const c = el('div', 'mapa-celda' + (n >= 3 ? ' osc' : '') + (esPrior(s.codigo) ? ' prio' : ''));
+        c.style.background = NIV_COLOR[n];
+        c.appendChild(el('span', 'mc-cod', s.codigo));
+        c.appendChild(el('span', 'mc-n', n ? 'N' + n : '—'));
+        c.title = subEtqLarga(s) + ': ' + (n ? 'N' + n : 'sin nivel') + (esPrior(s.codigo) ? ' · prioritario' : '');
+        cel.appendChild(c);
+      });
+      fila.appendChild(cel);
+      cont.appendChild(fila);
+    });
+    const ley = el('div', 'mapa-ley');
+    for (let n = 1; n <= NMAX; n++) { const b = el('span', 'ml-item'); const q = el('span', 'ml-c'); q.style.background = NIV_COLOR[n]; b.appendChild(q); b.appendChild(document.createTextNode('N' + n)); ley.appendChild(b); }
+    const pr = el('span', 'ml-item'); pr.appendChild(el('span', 'ml-c prio')); pr.appendChild(document.createTextNode('Prioritario')); ley.appendChild(pr);
+    cont.appendChild(ley);
   }
   function casosRevisar() {
     const out = [];
@@ -1047,6 +1322,56 @@
       'El resultado se presenta como un perfil: un diagrama de araña de los ' + TOTAL + ' subatributos (escala 0 a 5, donde 0 indica que no se asignó nivel) y un diagrama por atributo con su rango. El modelo no asigna un nivel global ni por atributo, porque los niveles son etapas acumulativas; el promedio que acompaña a cada atributo es solo una referencia.',
       'La hoja de ruta indica, para cada subatributo, el siguiente nivel a alcanzar, lo que ese nivel exige y los componentes de la matriz que aún faltan. Se ordena de menor a mayor nivel actual. No incluye plazos, costos ni responsables, que corresponden a la planificación interna de la organización.'
     ].forEach((p) => { y = parrafo(p, y, 10.5) + 2; });
+
+    // Resumen: distribución, datos clave y mapa de niveles
+    doc.addPage();
+    tit('Resumen del perfil', 22);
+    const rs = datosResumen();
+    doc.setFontSize(9); doc.setTextColor(90);
+    doc.text('Subatributos por nivel acordado', M, 30);
+    doc.setTextColor(0);
+    let xx = M;
+    [1, 2, 3, 4, 5, 0].forEach((n) => {
+      if (!rs.cnt[n]) return;
+      const w = AN * rs.cnt[n] / TOTAL;
+      doc.setFillColor(...NIV_RGB[n]); doc.rect(xx, 33, w, 10, 'F');
+      doc.setFontSize(8); doc.setTextColor(n >= 3 ? 255 : 40);
+      if (w > 11) doc.text((n ? 'N' + n : 'Sin') + ' · ' + rs.cnt[n], xx + w / 2, 39.5, { align: 'center' });
+      xx += w;
+    });
+    doc.setTextColor(0);
+    y = 52;
+    [['Rango del perfil', rs.rango], ['Prácticas cumplidas', rs.cumplidas + ' de ' + rs.total + ' exigidas en la matriz'],
+     ['Más maduros', rs.mas ? 'N' + rs.mas.n + ': ' + rs.mas.subs.map((s) => s.codigo + ' ' + s.nombre_en).join('; ') : '-'],
+     ['Subatributos prioritarios', listaPrior().map((c) => subEtq(SUBS.find((x) => x.s.codigo === c).s)).join('; ') || 'Sin definir'],
+     ['Hoja de ruta', rs.ruta + ' subatributos con siguiente nivel']
+    ].forEach(([k, v]) => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.text(pdfTxt(k + ':'), M, y);
+      doc.setFont('helvetica', 'normal');
+      const l = doc.splitTextToSize(pdfTxt(v), AN - 46);
+      doc.text(l, M + 46, y); y += l.length * 4.4 + 2.5;
+    });
+    tit('Mapa de niveles', y + 8);
+    const maxS = Math.max(...D.atributos.map((a) => a.subatributos.length));
+    const niveles = D.atributos.map((a) => a.subatributos.map((s) => acordado(s.codigo) || 0));
+    doc.autoTable({
+      startY: y + 12, margin: { left: M, right: M },
+      body: D.atributos.map((a) => [pdfTxt(a.nombre_en + '\n' + rangoAtributo(a)),
+        ...Array.from({ length: maxS }, (_, j) => { const s = a.subatributos[j]; if (!s) return ''; const n = acordado(s.codigo); return s.codigo + '\n' + (n ? 'N' + n : '-') + (esPrior(s.codigo) ? ' *' : ''); })]),
+      styles: { fontSize: 8, cellPadding: 2, halign: 'center', valign: 'middle', lineColor: [255, 255, 255], lineWidth: 0.8 },
+      columnStyles: { 0: { halign: 'left', cellWidth: 46, fontStyle: 'bold', fillColor: [247, 236, 238], textColor: [74, 15, 26] } },
+      didParseCell: (d) => {
+        if (d.section !== 'body' || d.column.index === 0) return;
+        const s = D.atributos[d.row.index].subatributos[d.column.index - 1];
+        if (!s) { d.cell.styles.fillColor = [255, 255, 255]; return; }
+        const n = niveles[d.row.index][d.column.index - 1];
+        d.cell.styles.fillColor = NIV_RGB[n]; d.cell.styles.textColor = n >= 3 ? 255 : 40;
+        if (esPrior(s.codigo)) d.cell.styles.fontStyle = 'bold';
+      }
+    });
+    doc.setFontSize(8); doc.setTextColor(90);
+    doc.text(pdfTxt('Escala de color: N1 (claro) a N5 (oscuro). * = subatributo prioritario para la empresa.'), M, doc.lastAutoTable.finalY + 5);
+    doc.setTextColor(0);
 
     // Diagramas
     doc.addPage();
@@ -1286,7 +1611,7 @@
       estado = normalizar(s);
       guardar();
       mensaje('Evaluación importada.', true);
-      mostrar(estado.vista || 'inicio');
+      mostrar(estado.vista || 'modelo');
     };
     r.readAsText(f);
   });
@@ -1301,7 +1626,7 @@
   // Se envía automáticamente al pulsar "Finalizar", si config.js tiene la URL
   function enviarBaseDatos() {
     const url = (CFG.urlBaseDatos || '').trim();
-    if (!url) return;
+    if (!url || estado.demo) return;
     const i = estado.inicio, id = estado.id;
     const nombreEv = (v) => v.anon ? '' : v.nombre;
     const evaluaciones = {
@@ -1341,6 +1666,6 @@
   $('app-version').textContent = D.meta.version;
   $('pie').textContent = D.meta.nombre + ' · ' + D.meta.version + ' (' + D.meta.fecha + ')';
   cargar();
-  mostrar(estado.vista || 'inicio');
+  mostrar(estado.vista || 'modelo');
   window.BIL_APP = { estado: () => estado, sugerido, hojaDeRuta, propuestaApp };   // para pruebas
 })();
